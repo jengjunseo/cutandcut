@@ -8,9 +8,15 @@ type Playing = {
 };
 export class AudioPreview {
   context?: AudioContext;
+  analyser?: AnalyserNode;
   playing = new Map<string, Playing>();
   async resume() {
     this.context ??= new AudioContext();
+    if (!this.analyser) {
+      this.analyser = this.context.createAnalyser();
+      this.analyser.fftSize = 2048;
+      this.analyser.connect(this.context.destination);
+    }
     await this.context.resume();
   }
   sync(p: Project, time: number, playing: boolean, rate: number) {
@@ -21,6 +27,8 @@ export class AudioPreview {
         time >= c.start &&
         time < c.start + c.duration &&
         !p.tracks.find((t) => t.id === c.trackId)?.muted &&
+        (!p.tracks.some((t) => t.kind === 'audio' && t.solo) ||
+          !!p.tracks.find((t) => t.id === c.trackId)?.solo) &&
         playing &&
         rate > 0,
     );
@@ -46,20 +54,24 @@ export class AudioPreview {
         element.preload = 'auto';
         const source = this.context.createMediaElementSource(element);
         const gain = this.context.createGain();
-        source.connect(gain).connect(this.context.destination);
+        source.connect(gain).connect(this.analyser!);
         a = { element, gain, source, url };
         this.playing.set(c.id, a);
       }
       const target =
-        seconds(c.sourceIn + time - c.start) +
+        seconds(c.sourceIn + (time - c.start) * (c.speed ?? 1)) +
         (p.assets.find((a) => a.id === c.assetId)?.origin ??
           p.assets.find((a) => a.id === c.assetId)?.audioStart ??
           0);
       if (Math.abs(a.element.currentTime - target) > 0.18)
         a.element.currentTime = Math.max(0, target);
-      a.element.playbackRate = rate;
-      a.element.preservesPitch = false;
-      a.gain.gain.setTargetAtTime(audioGain(c, time), this.context.currentTime, 0.015);
+      a.element.playbackRate = Math.min(16, rate * (c.speed ?? 1));
+      a.element.preservesPitch = c.preservePitch !== false;
+      a.gain.gain.setTargetAtTime(
+        audioGain(c, time) * (p.masterVolume ?? 1),
+        this.context.currentTime,
+        0.015,
+      );
       if (a.element.paused) void a.element.play().catch(() => {});
     }
   }
@@ -76,6 +88,7 @@ export class AudioPreview {
   }
   close() {
     this.stop();
+    this.analyser?.disconnect();
     void this.context?.close();
   }
 }

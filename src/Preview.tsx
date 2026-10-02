@@ -4,6 +4,8 @@ import type { Clip, Project } from './model';
 import { duration, timecode, frameTick } from './model';
 import { createEngine, files } from './engine';
 import { IconButton } from './ui';
+import { fitPreview } from './geometry';
+import TimeInput from './TimeInput';
 type Props = {
   project: Project;
   time: number;
@@ -15,6 +17,10 @@ type Props = {
   importFiles: () => void;
   update: (p: Project) => void;
   notify: (s: string) => void;
+  playRange: () => void;
+  capture: () => void;
+  processing: string;
+  meter: React.ReactNode;
 };
 export default function Preview({
   project: p,
@@ -27,6 +33,10 @@ export default function Preview({
   importFiles,
   update,
   notify,
+  playRange,
+  capture,
+  processing,
+  meter,
 }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null),
     stage = useRef<HTMLDivElement>(null),
@@ -36,7 +46,12 @@ export default function Preview({
     latest = useRef({ p, time, playing });
   latest.current = { p, time, playing };
   const [error, setError] = useState('');
-  const [width, setWidth] = useState(640);
+  const [bounds, setBounds] = useState({ width: 640, height: 360 });
+  const [quality, setQuality] = useState(1),
+    [cropMode, setCropMode] = useState(false),
+    [gesture, setGesture] = useState<Clip>();
+  const fitted = fitPreview(bounds.width, bounds.height, p.width / p.height);
+  const width = Math.round(fitted.width);
   useEffect(() => {
     const w = createEngine();
     worker.current = w;
@@ -62,7 +77,7 @@ export default function Preview({
   }, []);
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) =>
-      setWidth(Math.max(320, Math.round(entry.contentRect.width))),
+      setBounds({ width: entry.contentRect.width, height: entry.contentRect.height }),
     );
     if (stage.current) observer.observe(stage.current);
     return () => observer.disconnect();
@@ -82,12 +97,19 @@ export default function Preview({
       project: p,
       time,
       seq: ++seq.current,
-      width: Math.min(960, width),
+      width: Math.max(16, Math.round(Math.min(960, width) * quality)),
     });
-  }, [p, time, width]);
-  const selectedText = p.clips.find((c) => selected.includes(c.id) && c.kind === 'text');
-  function dragText(event: React.PointerEvent) {
-    if (!selectedText || !stage.current) return;
+  }, [p, time, width, quality]);
+  const selectedText = p.clips.find((c) => selected.includes(c.id) && c.kind !== 'audio');
+  const locked = selectedText && p.tracks.find((t) => t.id === selectedText.trackId)?.locked;
+  useEffect(() => setCropMode(false), [selectedText?.id, selectedText?.rotation]);
+  function dragText(
+    event: React.PointerEvent,
+    mode: 'move' | 'scale' | 'crop-start' | 'crop-end' = 'move',
+  ) {
+    event.stopPropagation();
+    event.preventDefault();
+    if (!selectedText || !stage.current || locked || event.button !== 0) return;
     const base = p,
       clip = selectedText,
       startX = event.clientX,
@@ -97,28 +119,45 @@ export default function Preview({
     target.setPointerCapture(event.pointerId);
     let next = p;
     const move = (e: PointerEvent) => {
+      const dx = (e.clientX - startX) / rect.width,
+        dy = (e.clientY - startY) / rect.height;
+      let value: Partial<Clip> = { x: clip.x + dx, y: clip.y + dy };
+      if (mode === 'scale') value = { scale: Math.max(0.01, Math.min(5, clip.scale + dx * 2)) };
+      if (mode.startsWith('crop')) {
+        const crop = { left: 0, right: 0, top: 0, bottom: 0, ...clip.crop };
+        if (mode === 'crop-start') {
+          crop.left = Math.max(0, Math.min(0.95 - crop.right, crop.left + dx / clip.scale));
+          crop.top = Math.max(0, Math.min(0.95 - crop.bottom, crop.top + dy / clip.scale));
+        } else {
+          crop.right = Math.max(0, Math.min(0.95 - crop.left, crop.right - dx / clip.scale));
+          crop.bottom = Math.max(0, Math.min(0.95 - crop.top, crop.bottom - dy / clip.scale));
+        }
+        value = { crop };
+      }
+      if (mode === 'move') {
+        if (Math.abs(value.x! - 0.5) < 0.015) value.x = 0.5;
+        if (Math.abs(value.y! - 0.5) < 0.015) value.y = 0.5;
+      }
       next = {
         ...base,
         clips: base.clips.map((c) =>
           c.id === clip.id
             ? {
                 ...c,
-                x: clip.x + (e.clientX - startX) / rect.width,
-                y: clip.y + (e.clientY - startY) / rect.height,
+                ...value,
               }
             : c,
         ),
       };
+      setGesture(next.clips.find((c) => c.id === clip.id));
       if (worker.current)
         worker.current.postMessage({
           type: 'preview',
           project: next,
           time,
           seq: ++seq.current,
-          width,
+          width: Math.max(16, Math.round(Math.min(960, width) * quality)),
         });
-      target.style.left = `${next.clips.find((c) => c.id === clip.id)!.x * 100}%`;
-      target.style.top = `${next.clips.find((c) => c.id === clip.id)!.y * 100}%`;
     };
     const cleanup = () => {
       target.removeEventListener('pointermove', move);
@@ -129,10 +168,12 @@ export default function Preview({
     };
     const end = () => {
       cleanup();
+      setGesture(undefined);
       update(next);
     };
     const cancel = () => {
       cleanup();
+      setGesture(undefined);
       target.style.left = `${clip.x * 100}%`;
       target.style.top = `${clip.y * 100}%`;
       worker.current?.postMessage({
@@ -140,7 +181,7 @@ export default function Preview({
         project: base,
         time,
         seq: ++seq.current,
-        width,
+        width: Math.max(16, Math.round(Math.min(960, width) * quality)),
       });
       update(base);
     };
@@ -155,11 +196,54 @@ export default function Preview({
     target.addEventListener('pointercancel', cancel, { once: true });
     window.addEventListener('keydown', key);
   }
+  const shown = gesture ?? selectedText;
+  const asset = p.assets.find((a) => a.id === shown?.assetId),
+    crop = shown?.crop ?? { left: 0, right: 0, top: 0, bottom: 0 };
+  const sourceWidth = (asset?.width ?? p.width) * (1 - crop.left - crop.right),
+    sourceHeight = (asset?.height ?? p.height) * (1 - crop.top - crop.bottom);
+  const fit =
+    shown?.fit === 'cover'
+      ? Math.max(fitted.width / sourceWidth, fitted.height / sourceHeight)
+      : Math.min(fitted.width / sourceWidth, fitted.height / sourceHeight);
   return (
     <section className="preview-panel" aria-label="미리보기">
       <div className="panel-top">
         <span className="eyebrow">미리보기</span>
         <div className="preview-meta">
+          <select
+            aria-label="미리보기 품질"
+            title="출력 해상도는 유지됩니다. 프록시 파일을 생성하지 않습니다."
+            value={quality}
+            onChange={(e) => setQuality(Number(e.target.value))}
+          >
+            <option value={1}>미리보기 100%</option>
+            <option value={0.5}>미리보기 50%</option>
+            <option value={0.25}>미리보기 25%</option>
+          </select>
+          <button
+            className="text-tool"
+            aria-pressed={p.safeArea ?? false}
+            onClick={() => update({ ...p, safeArea: !p.safeArea })}
+          >
+            안전 영역
+          </button>
+          {selectedText && selectedText.kind !== 'text' ? (
+            <button
+              className="text-tool"
+              disabled={!!locked || selectedText.rotation !== 0}
+              aria-pressed={cropMode}
+              onClick={() => setCropMode(!cropMode)}
+            >
+              크롭 핸들
+            </button>
+          ) : null}
+          <button
+            className="text-tool"
+            disabled={!p.clips.length || !!processing}
+            onClick={capture}
+          >
+            정지 프레임
+          </button>
           <span>
             {p.width} × {p.height}
           </span>
@@ -181,26 +265,57 @@ export default function Preview({
       <div className="preview-area" ref={stage}>
         <div
           className="canvas-wrap"
-          style={
-            {
-              aspectRatio: `${p.width}/${p.height}`,
-              '--aspect': p.width / p.height,
-            } as React.CSSProperties
-          }
+          style={{
+            width: fitted.width,
+            height: fitted.height,
+            aspectRatio: `${p.width}/${p.height}`,
+          }}
         >
           {p.clips.length ? (
             <>
               <canvas ref={canvas} aria-label="프로젝트 합성 영상" />
+              {p.safeArea ? (
+                <div className="safe-area" aria-label="10% 자막 안전 영역">
+                  <span />
+                  <span />
+                </div>
+              ) : null}
               {selectedText &&
               time >= selectedText.start &&
               time < selectedText.start + selectedText.duration ? (
                 <div
-                  className="text-selection"
-                  style={{ left: `${selectedText.x * 100}%`, top: `${selectedText.y * 100}%` }}
+                  className={`text-selection visual-selection ${locked ? 'selection-locked' : ''}`}
+                  style={{
+                    left: `${shown!.x * 100}%`,
+                    top: `${shown!.y * 100}%`,
+                    width:
+                      selectedText.kind === 'text' ? undefined : sourceWidth * fit * shown!.scale,
+                    height:
+                      selectedText.kind === 'text' ? undefined : sourceHeight * fit * shown!.scale,
+                    transform: `translate(-50%,-50%) rotate(${shown!.rotation}deg)`,
+                  }}
                   onPointerDown={dragText}
-                  title="드래그하여 텍스트 위치 변경"
+                  title={locked ? '잠긴 트랙' : '드래그하여 위치 변경 · 중앙에 스냅'}
                 >
-                  <span>{selectedText.text?.text || '텍스트'}</span>
+                  {selectedText.kind === 'text' ? (
+                    <span>{selectedText.text?.text || '텍스트'}</span>
+                  ) : null}
+                  {!locked ? (
+                    <>
+                      <button
+                        aria-label={cropMode ? '왼쪽 위 크롭 핸들' : '클립 크기 조절 핸들'}
+                        className="visual-handle start"
+                        onPointerDown={(e) => dragText(e, cropMode ? 'crop-start' : 'scale')}
+                      />
+                      <button
+                        aria-label={
+                          cropMode ? '오른쪽 아래 크롭 핸들' : '클립 크기 조절 핸들 오른쪽'
+                        }
+                        className="visual-handle end"
+                        onPointerDown={(e) => dragText(e, cropMode ? 'crop-end' : 'scale')}
+                      />
+                    </>
+                  ) : null}
                 </div>
               ) : null}
             </>
@@ -240,7 +355,7 @@ export default function Preview({
         </div>
       </div>
       <div className="transport">
-        <span className="timecode current-time">{timecode(time, p.fps)}</span>
+        <TimeInput time={time} fps={p.fps} seek={seek} notify={notify} />
         <div className="transport-controls">
           <IconButton
             label="이전 프레임 (←)"
@@ -268,8 +383,13 @@ export default function Preview({
           </IconButton>
         </div>
         <span className="timecode total-time">{timecode(duration(p), p.fps)}</span>
+        {p.workRange && p.workRange.end > p.workRange.start ? (
+          <button className="text-tool" onClick={playRange}>
+            I/O 재생
+          </button>
+        ) : null}
         <span className="playback-rate">{rate < 0 ? '역방향 프레임 탐색' : `${rate}×`}</span>
-        <Volume2 className="transport-volume" size={16} />
+        {meter}
       </div>
     </section>
   );

@@ -15,7 +15,15 @@ import {
 } from 'mediabunny';
 import { probe, waveform, MediaPool, AudioMixer } from './media';
 import { Renderer } from './render';
-import { duration, seconds, frameTick, validateProject, type Project, type Asset } from './model';
+import {
+  duration,
+  seconds,
+  frameTick,
+  validateProject,
+  requiredAssets,
+  type Project,
+  type Asset,
+} from './model';
 const scope = self as unknown as {
   postMessage: (message: unknown, transfer?: Transferable[]) => void;
   onmessage: ((event: MessageEvent) => void) | null;
@@ -62,11 +70,46 @@ scope.onmessage = (event) => {
       );
     return;
   }
+  if (data.type === 'capture' || data.type === 'audio-analysis') {
+    for (const source of data.sources ?? []) pool.register(source.id, source.file);
+    void extra(data)
+      .then((value) => scope.postMessage({ type: data.type, requestId: data.requestId, value }))
+      .catch((e) =>
+        scope.postMessage({ type: 'error', requestId: data.requestId, error: errorText(e) }),
+      );
+    return;
+  }
   if (data.type === 'export')
-    void exportProject(data.project, data.format, data.bitrate).catch((e) =>
+    void exportProject(data.project, data.format, data.bitrate, data.range).catch((e) =>
       scope.postMessage({ type: 'error', error: errorText(e) }),
     );
 };
+async function extra(data: { type: string; project: Project; time: number }) {
+  const p = validateProject(data.project);
+  const visual =
+    data.type === 'capture'
+      ? new Renderer(pool, new OffscreenCanvas(p.width, p.height))
+      : undefined;
+  const mixer = data.type === 'audio-analysis' ? new AudioMixer(p, pool) : undefined;
+  try {
+    if (visual) {
+      await visual.render(p, data.time);
+      return await visual.canvas.convertToBlob({ type: 'image/png' });
+    }
+    const count = Math.ceil(seconds(duration(p)) * 48000);
+    if (count > 300 * 48000) throw new Error('음량 검사는 5분 이하 프로젝트를 지원합니다.');
+    for (let at = 0; at < count; at += 4096) await mixer!.block(at, Math.min(4096, count - at));
+    return {
+      peak: mixer!.peak,
+      clippedSamples: mixer!.clippedSamples,
+      rms: Math.sqrt(mixer!.sumSquares / Math.max(1, mixer!.samples)),
+    };
+  } finally {
+    await visual?.close();
+    await mixer?.close();
+    pool.close();
+  }
+}
 async function preview() {
   if (rendering) return;
   rendering = true;
@@ -100,7 +143,7 @@ async function capabilities(p: Project, bitrate: number) {
   const options = { width: p.width, height: p.height, frameRate: p.fps, bitrate };
   const { registerMp3Encoder } = await import('@mediabunny/mp3-encoder');
   registerMp3Encoder();
-  const [avc, vp9, vp8, aac, opus, mp3] = await Promise.all([
+  const [avc, vp9, vp8, nativeAac, opus, mp3] = await Promise.all([
     canEncodeVideo('avc', options),
     canEncodeVideo('vp9', options),
     canEncodeVideo('vp8', options),
@@ -108,15 +151,40 @@ async function capabilities(p: Project, bitrate: number) {
     canEncodeAudio('opus', { numberOfChannels: 2, sampleRate: 48000, bitrate: 192000 }),
     canEncodeAudio('mp3', { numberOfChannels: 2, sampleRate: 48000, bitrate: 192000 }),
   ]);
-  return { mp4: avc && aac, webm: (vp9 || vp8) && opus, wav: true, mp3, vp9 };
+  let aac = nativeAac;
+  if (!aac) {
+    const { registerAacEncoder } = await import('@mediabunny/aac-encoder');
+    registerAacEncoder();
+    aac = await canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48000, bitrate: 192000 });
+  }
+  return {
+    mp4: avc && aac,
+    webm: (vp9 || vp8) && opus,
+    wav: true,
+    mp3,
+    vp9,
+    avc,
+    aacFallback: !nativeAac && aac,
+  };
 }
 async function exportProject(
   raw: Project,
   format: 'mp4' | 'webm' | 'wav' | 'mp3',
   bitrate: number,
+  range?: { start: number; end: number },
 ) {
   const p = validateProject(raw);
-  const length = seconds(duration(p));
+  const from = range?.start ?? 0,
+    to = range?.end ?? duration(p);
+  if (
+    !Number.isSafeInteger(from) ||
+    !Number.isSafeInteger(to) ||
+    from < 0 ||
+    to <= from ||
+    to > duration(p)
+  )
+    throw new Error('출력 범위가 올바르지 않습니다.');
+  const length = seconds(to - from);
   if (length <= 0) throw new Error('내보낼 클립을 추가하세요.');
   if (length > 300)
     throw new Error('현재 로컬 내보내기는 메모리 보호를 위해 5분 이하로 제한합니다.');
@@ -135,9 +203,9 @@ async function exportProject(
   let mixer: AudioMixer | undefined;
   try {
     scope.postMessage({ type: 'progress', stage: '폰트 · 원본 확인', progress: 0 });
-    for (const c of p.clips)
-      if (c.assetId && !pool.files.has(c.assetId))
-        throw new Error(`원본이 누락되었습니다: ${c.name}`);
+    for (const key of requiredAssets(p, from, to, format === 'mp4' || format === 'webm'))
+      if (!pool.files.has(key))
+        throw new Error(`원본이 누락되었습니다: ${p.assets.find((a) => a.id === key)?.name}`);
     const target = new BufferTarget();
     output = new Output({
       target,
@@ -155,7 +223,7 @@ async function exportProject(
       const codec: VideoCodec = format === 'mp4' ? 'avc' : caps.vp9 ? 'vp9' : 'vp8';
       const canvas = new OffscreenCanvas(p.width, p.height);
       visual = new Renderer(pool, canvas);
-      await visual.render(p, 0);
+      await visual.render(p, from);
       video = new CanvasSource(canvas, { codec, bitrate, keyFrameInterval: 2 });
       output.addVideoTrack(video, { frameRate: p.fps });
     }
@@ -170,13 +238,13 @@ async function exportProject(
     let audioAt = 0;
     if (video && visual) {
       for (let frame = 0; frame < frameCount; frame++) {
-        const time = frameTick(frame, p.fps);
+        const time = from + frameTick(frame, p.fps);
         await visual.render(p, time);
         await video.add(frame / p.fps, 1 / p.fps);
         const boundary = Math.min(sampleCount, Math.ceil(((frame + 1) / p.fps) * 48000));
         while (audioAt < boundary) {
           const count = Math.min(4096, boundary - audioAt);
-          const data = await mixer.block(audioAt, count);
+          const data = await mixer.block(Math.round(seconds(from) * 48000) + audioAt, count);
           const sample = new AudioSample({
             data,
             format: 'f32',
@@ -203,7 +271,7 @@ async function exportProject(
     } else {
       while (audioAt < sampleCount) {
         const count = Math.min(4096, sampleCount - audioAt);
-        const data = await mixer.block(audioAt, count);
+        const data = await mixer.block(Math.round(seconds(from) * 48000) + audioAt, count);
         const sample = new AudioSample({
           data,
           format: 'f32',
@@ -230,7 +298,15 @@ async function exportProject(
     scope.postMessage({ type: 'progress', stage: '컨테이너 마무리', progress: 1 });
     await output.finalize();
     const buffer = target.buffer!;
-    scope.postMessage({ type: 'complete', buffer, format }, [buffer]);
+    scope.postMessage(
+      {
+        type: 'complete',
+        buffer,
+        format,
+        audio: { peak: mixer.peak, clippedSamples: mixer.clippedSamples },
+      },
+      [buffer],
+    );
   } catch (e) {
     await output?.cancel();
     throw e;

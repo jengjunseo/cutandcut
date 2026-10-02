@@ -1,7 +1,19 @@
 import { Settings2, Link2, Unlink, SlidersHorizontal, Type, ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { seconds, tick, trim, move, reorder, type Clip, type Project } from './model';
+import {
+  seconds,
+  tick,
+  trim,
+  move,
+  reorder,
+  linked,
+  editable,
+  id,
+  type Clip,
+  type Project,
+} from './model';
 import { Field, IconButton } from './ui';
+import { changeSpeed } from './editing';
 export const ratios = {
   '16:9': [16, 9],
   '9:16': [9, 16],
@@ -34,7 +46,7 @@ type Props = {
 };
 export default function Inspector({ project: p, selected, commit, notify, onSelect }: Props) {
   const c = p.clips.find((c) => selected.includes(c.id));
-  const locked = c && p.tracks.find((t) => t.id === c.trackId)?.locked;
+  const locked = c && !editable(p, linked(p, [c.id]));
   const [section, setSection] = useState('transform');
   function patch(value: Partial<Clip>) {
     if (!c || locked) return;
@@ -86,7 +98,7 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                       : '이미지'}
               </span>
               <h2>{selected.length > 1 ? `${selected.length}개 클립 선택` : c.name}</h2>
-              {locked ? <p className="warning">이 트랙은 잠겨 있습니다.</p> : null}
+              {locked ? <p className="warning">이 클립 또는 연결된 트랙이 잠겨 있습니다.</p> : null}
             </div>
             <fieldset disabled={!!locked}>
               <div className="two-fields order-buttons">
@@ -123,11 +135,56 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                       value={seconds(c.sourceIn)}
                       min={0}
                       max={seconds(p.assets.find((a) => a.id === c.assetId)?.duration ?? 0)}
-                      onCommit={(v) => commit(trim(p, [c.id], 'start', tick(v) - c.sourceIn))}
+                      onCommit={(v) =>
+                        commit(
+                          trim(
+                            p,
+                            [c.id],
+                            'start',
+                            Math.round((tick(v) - c.sourceIn) / (c.speed ?? 1)),
+                          ),
+                        )
+                      }
                     />
                   </Field>
                 ) : null}
               </div>
+              {c.kind === 'video' || c.kind === 'audio' ? (
+                <div className="inspector-section">
+                  <h3>속도</h3>
+                  <Field label="클립 속도">
+                    <select
+                      aria-label="클립 속도"
+                      value={c.speed ?? 1}
+                      onChange={(e) =>
+                        commit(
+                          changeSpeed(p, [c.id], Number(e.target.value), c.preservePitch !== false),
+                        )
+                      }
+                    >
+                      {[0.5, 0.75, 1, 1.25, 1.5, 2].map((v) => (
+                        <option key={v} value={v}>
+                          {v}×
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={c.preservePitch !== false}
+                      onChange={(e) =>
+                        commit(changeSpeed(p, [c.id], c.speed ?? 1, e.target.checked))
+                      }
+                    />
+                    음정 유지
+                  </label>
+                  <p className="small-note">
+                    원본 구간을 유지하며 링크된 영상·오디오 길이를 함께 바꿉니다. 뒤 클립의 위치는
+                    유지되어 빈틈이나 겹침이 생길 수 있습니다.
+                  </p>
+                </div>
+              ) : null}
               {c.kind === 'text' && c.text ? (
                 <div className="inspector-section">
                   <h3>
@@ -315,6 +372,78 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                       >
                         위치 · 크기 초기화
                       </button>
+                      <div className="two-fields">
+                        <button className="secondary" onClick={() => patch({ x: 0.5 })}>
+                          가로 중앙 정렬
+                        </button>
+                        <button className="secondary" onClick={() => patch({ y: 0.5 })}>
+                          세로 중앙 정렬
+                        </button>
+                      </div>
+                      {c.kind !== 'text' ? (
+                        <>
+                          <div className="two-fields">
+                            <button
+                              className="secondary"
+                              aria-pressed={c.flipX ?? false}
+                              onClick={() => patch({ flipX: !c.flipX })}
+                            >
+                              좌우 반전
+                            </button>
+                            <button
+                              className="secondary"
+                              aria-pressed={c.flipY ?? false}
+                              onClick={() => patch({ flipY: !c.flipY })}
+                            >
+                              상하 반전
+                            </button>
+                          </div>
+                          <details className="crop-settings">
+                            <summary>원본 크롭 · 미리보기 핸들로 조절 가능</summary>
+                            {(['left', 'right', 'top', 'bottom'] as const).map((edge, i) => (
+                              <Field
+                                key={edge}
+                                label={`크롭 ${['왼쪽', '오른쪽', '위', '아래'][i]} (%)`}
+                              >
+                                <NumberInput
+                                  value={(c.crop?.[edge] ?? 0) * 100}
+                                  min={0}
+                                  max={
+                                    95 -
+                                    (c.crop?.[
+                                      {
+                                        left: 'right',
+                                        right: 'left',
+                                        top: 'bottom',
+                                        bottom: 'top',
+                                      }[edge] as typeof edge
+                                    ] ?? 0) *
+                                      100
+                                  }
+                                  onCommit={(v) =>
+                                    patch({
+                                      crop: {
+                                        left: 0,
+                                        right: 0,
+                                        top: 0,
+                                        bottom: 0,
+                                        ...c.crop,
+                                        [edge]: v / 100,
+                                      },
+                                    })
+                                  }
+                                />
+                              </Field>
+                            ))}
+                            <button
+                              className="secondary"
+                              onClick={() => patch({ crop: undefined })}
+                            >
+                              원본 크롭 초기화
+                            </button>
+                          </details>
+                        </>
+                      ) : null}
                     </>
                   ) : null}
                 </div>
@@ -351,6 +480,44 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                   }
                 >
                   <Unlink size={14} /> 원본 오디오 링크 해제
+                </button>
+              ) : null}
+              {!c.linkId && selected.length === 2 ? (
+                <button
+                  className="secondary full"
+                  onClick={() => {
+                    const pair = p.clips.filter((x) => selected.includes(x.id));
+                    if (
+                      !pair.some((x) => x.kind === 'video') ||
+                      !pair.some((x) => x.kind === 'audio') ||
+                      pair.some(
+                        (x) =>
+                          x.linkId ||
+                          x.assetId !== pair[0].assetId ||
+                          x.start !== pair[0].start ||
+                          x.duration !== pair[0].duration ||
+                          x.sourceIn !== pair[0].sourceIn ||
+                          (x.speed ?? 1) !== (pair[0].speed ?? 1),
+                      )
+                    ) {
+                      notify('같은 원본·시작·길이·속도의 영상과 오디오를 선택하세요.');
+                      return;
+                    }
+                    if (!editable(p, pair)) {
+                      notify('연결할 두 트랙의 잠금을 해제하세요.');
+                      return;
+                    }
+                    const key = id();
+                    commit({
+                      ...p,
+                      clips: p.clips.map((x) =>
+                        selected.includes(x.id) ? { ...x, linkId: key } : x,
+                      ),
+                    });
+                  }}
+                >
+                  <Link2 size={14} />
+                  영상 · 원본 오디오 다시 연결
                 </button>
               ) : null}
             </fieldset>

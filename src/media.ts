@@ -10,6 +10,7 @@ import {
   type AudioSample,
 } from 'mediabunny';
 import { id, tick, seconds, type Asset, type Project, type Clip, audioGain } from './model';
+import { Stretch } from '@soundtouchjs/core';
 export class MediaPool {
   files = new Map<string, File>();
   resources = new Map<
@@ -272,8 +273,61 @@ export class AudioCursor {
     await this.iterator.return();
   }
 }
+/** Streaming WSOLA: at most one input block and one output block are retained. */
+class TempoCursor {
+  stretch = new Stretch({ sampleRate: 48000, createBuffers: true });
+  inputAt: number;
+  output = new Float32Array(0);
+  at = 0;
+  constructor(
+    public raw: AudioCursor,
+    start: number,
+    public end: number,
+    speed: number,
+  ) {
+    this.inputAt = start;
+    this.stretch.tempo = speed;
+  }
+  get assetId() {
+    return this.raw.assetId;
+  }
+  async sample(_time: number): Promise<[number, number]> {
+    if (this.at >= this.output.length) {
+      while (this.stretch.outputBuffer!.frameCount < 4096) {
+        const block = new Float32Array(4096 * 2);
+        for (let i = 0; i < 4096; i++) {
+          const t = this.inputAt + i / 48000;
+          if (t < this.end) {
+            const value = await this.raw.sample(t);
+            block[i * 2] = value[0];
+            block[i * 2 + 1] = value[1];
+          }
+        }
+        this.inputAt += 4096 / 48000;
+        this.stretch.inputBuffer!.putSamples(block);
+        this.stretch.process();
+      }
+      this.output = new Float32Array(4096 * 2);
+      this.stretch.outputBuffer!.extract(this.output, 0, 4096);
+      this.stretch.outputBuffer!.receive(4096);
+      this.at = 0;
+    }
+    const value: [number, number] = [this.output[this.at], this.output[this.at + 1]];
+    this.at += 2;
+    return value;
+  }
+  async close() {
+    this.stretch.clear();
+    this.output = new Float32Array(0);
+    await this.raw.close();
+  }
+}
 export class AudioMixer {
-  cursors = new Map<string, AudioCursor>();
+  cursors = new Map<string, AudioCursor | TempoCursor>();
+  peak = 0;
+  clippedSamples = 0;
+  sumSquares = 0;
+  samples = 0;
   constructor(
     public project: Project,
     public pool: MediaPool,
@@ -286,6 +340,8 @@ export class AudioMixer {
       (c) =>
         c.kind === 'audio' &&
         !this.project.tracks.find((t) => t.id === c.trackId)?.muted &&
+        (!this.project.tracks.some((t) => t.kind === 'audio' && t.solo) ||
+          !!this.project.tracks.find((t) => t.id === c.trackId)?.solo) &&
         seconds(c.start) < to &&
         seconds(c.start + c.duration) > from,
     );
@@ -295,12 +351,16 @@ export class AudioMixer {
       if (!cursor) {
         const r = await this.pool.get(c.assetId!);
         if (!r.audio) throw new Error('원본 오디오 트랙을 찾을 수 없습니다.');
-        cursor = new AudioCursor(
-          r.audio,
-          (asset.origin ?? asset.audioStart) + seconds(c.sourceIn),
-          asset.audioStart + seconds(c.sourceIn + c.duration),
-          asset.id,
-        );
+        const speed = c.speed ?? 1;
+        const start =
+          (asset.origin ?? asset.audioStart) +
+          seconds(c.sourceIn) +
+          Math.max(0, from - seconds(c.start)) * speed;
+        const end =
+          (asset.origin ?? asset.audioStart) + seconds(c.sourceIn) + seconds(c.duration) * speed;
+        const raw = new AudioCursor(r.audio, start, end, asset.id);
+        cursor =
+          speed !== 1 && c.preservePitch !== false ? new TempoCursor(raw, start, end, speed) : raw;
         this.pool.pin(asset.id);
         this.cursors.set(c.id, cursor);
       }
@@ -309,7 +369,9 @@ export class AudioMixer {
       for (let i = first; i < last; i++) {
         const t = (startSample + i) / rate;
         const values = await cursor.sample(
-          (asset.origin ?? asset.audioStart) + seconds(c.sourceIn) + t - seconds(c.start),
+          (asset.origin ?? asset.audioStart) +
+            seconds(c.sourceIn) +
+            (t - seconds(c.start)) * (c.speed ?? 1),
         );
         const gain = audioGain(c, tick(t));
         out[i * 2] += values[0] * gain;
@@ -324,7 +386,14 @@ export class AudioMixer {
         this.cursors.delete(key);
       }
     }
-    for (let i = 0; i < out.length; i++) out[i] = Math.max(-1, Math.min(1, out[i]));
+    for (let i = 0; i < out.length; i++) {
+      const value = out[i] * (this.project.masterVolume ?? 1);
+      this.peak = Math.max(this.peak, Math.abs(value));
+      this.sumSquares += value * value;
+      this.samples++;
+      if (Math.abs(value) > 1) this.clippedSamples++;
+      out[i] = Math.max(-1, Math.min(1, value));
+    }
     return out;
   }
   async close() {

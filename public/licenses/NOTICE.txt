@@ -8,9 +8,13 @@ https://github.com/lucide-icons/lucide
 
 Mediabunny 1.61.0 — Vanilagy and contributors — MPL-2.0
 @mediabunny/mp3-encoder 1.61.0 — Vanilagy and contributors — MPL-2.0
+@mediabunny/aac-encoder 1.61.0 — Vanilagy and contributors — MPL-2.0
+@soundtouchjs/core 2.1.1 — SoundTouchJS contributors — MPL-2.0
 Unmodified library source is distributed in these npm packages:
 https://www.npmjs.com/package/mediabunny/v/1.61.0
 https://www.npmjs.com/package/@mediabunny/mp3-encoder/v/1.61.0
+https://www.npmjs.com/package/@mediabunny/aac-encoder/v/1.61.0
+https://www.npmjs.com/package/@soundtouchjs/core/v/2.1.1
 Source and build scripts: https://github.com/Vanilagy/mediabunny
 MPL license: /licenses/MPL-2.0.txt
 
@@ -19,6 +23,23 @@ https://lame.sourceforge.io/
 Source releases: https://sourceforge.net/projects/lame/files/lame/
 License: /licenses/LGPL-2.0.txt
 This encoder is loaded as a separate module; CyanCut does not modify its source.
+
+The AAC extension contains FFmpeg's native AAC encoder (LGPL-2.1-or-later).
+It is loaded only when browser-native AAC encoding is unavailable.
+License: /licenses/LGPL-2.1.txt
+Upstream bridge and build instructions: /licenses/aac-bridge.c, /licenses/AAC-BUILD.md
+FFmpeg library version observed in the bundled WASM: Lavc62.23.103.
+Source snapshot with matching libavcodec 62.23.103 / libavutil 60.24.100:
+/licenses/ffmpeg-source-62.23.103.tar.gz
+https://github.com/FFmpeg/FFmpeg/tree/499b5f5f92f73e5b0e6108242983695fcb6409e2
+SHA256: e5c84419677f2aa84d062515214ad3d893b26e467f54d3b347e522de8f6ba61d
+The upstream npm build does not record its exact FFmpeg commit. The source
+snapshot matches the library version; byte-for-byte rebuild is not verified.
+The upstream configuration enables AAC and does not enable GPL/nonfree codecs.
+
+SoundTouchJS Stretch provides bounded streaming WSOLA time stretching.
+Unmodified source: https://github.com/cutterbl/SoundTouchJS
+Source distributed in the pinned @soundtouchjs/core npm package above.
 
 Noto Sans KR — Google Inc. — SIL Open Font License 1.1
 https://github.com/notofonts/noto-cjk

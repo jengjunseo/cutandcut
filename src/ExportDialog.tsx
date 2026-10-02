@@ -8,13 +8,26 @@ import {
   Monitor,
   ArrowRight,
 } from 'lucide-react';
-import { duration, seconds, type Project } from './model';
+import { duration, seconds, requiredAssets, type Project } from './model';
 import { checkCapabilities, createEngine, files, type Capabilities } from './engine';
 import { download } from './storage';
 import { Field, IconButton, formatBytes } from './ui';
-type Props = { project: Project; onClose: () => void };
-export default function ExportDialog({ project, onClose }: Props) {
-  const [snapshot] = useState(() => structuredClone(project));
+import { ratioOf, setRatio, ratios } from './Inspector';
+type Props = {
+  project: Project;
+  onClose: () => void;
+  onProjectChange: (p: Project) => void;
+  range?: { start: number; end: number };
+};
+export default function ExportDialog({ project, onClose, onProjectChange, range }: Props) {
+  const [snapshot, setSnapshot] = useState(() => structuredClone(project));
+  const [settingsOpen, setSettingsOpen] = useState(false),
+    [useRange, setUseRange] = useState(false),
+    [largePlayer, setLargePlayer] = useState(false);
+  function settings(p: Project) {
+    setSnapshot(p);
+    onProjectChange(p);
+  }
   const [format, setFormat] = useState<'mp4' | 'webm' | 'wav' | 'mp3'>('mp4'),
     [quality, setQuality] = useState('standard'),
     [bitrate, setBitrate] = useState(8),
@@ -28,10 +41,46 @@ export default function ExportDialog({ project, onClose }: Props) {
   const worker = useRef<Worker | null>(null),
     generation = useRef(0),
     dialog = useRef<HTMLDivElement>(null);
-  const missing = snapshot.assets.filter(
-    (a) => snapshot.clips.some((c) => c.assetId === a.id) && !files.has(a.id),
+  const [audioStats, setAudioStats] = useState<{ peak: number; clippedSamples: number }>();
+  const from = useRange && range ? range.start : 0;
+  const to = useRange && range ? Math.min(duration(snapshot), range.end) : duration(snapshot);
+  const visible = snapshot.clips.filter(
+    (c) =>
+      c.start < to &&
+      c.start + c.duration > from &&
+      !snapshot.tracks.find((t) => t.id === c.trackId)?.hidden,
   );
-  const length = seconds(duration(snapshot));
+  const needed = requiredAssets(snapshot, from, to, format === 'mp4' || format === 'webm');
+  const missing = snapshot.assets.filter((a) => needed.has(a.id) && !files.has(a.id));
+  const visualIntervals = visible
+    .filter((c) => c.kind !== 'audio')
+    .map((c) => [Math.max(from, c.start), Math.min(to, c.start + c.duration)])
+    .sort((a, b) => a[0] - b[0]);
+  let covered = from,
+    gaps = 0;
+  for (const [start, end] of visualIntervals) {
+    if (start > covered) gaps += start - covered;
+    covered = Math.max(covered, end);
+  }
+  gaps += Math.max(0, to - covered);
+  const riskyText = visible.filter(
+    (c) =>
+      c.text &&
+      (c.y < 0.05 ||
+        c.y > 0.95 ||
+        Math.max(...c.text.text.split('\n').map((s) => s.length)) * c.text.size * c.scale >
+          snapshot.width * 0.95),
+  );
+  const overlaps = snapshot.tracks
+    .filter((t) => t.kind === 'visual')
+    .filter((t) => {
+      const clips = visible.filter((c) => c.trackId === t.id).sort((a, b) => a.start - b.start);
+      return clips.some((c, i) => i > 0 && c.start < clips[i - 1].start + clips[i - 1].duration);
+    });
+  const length = seconds(to - from);
+  const estimate =
+    length *
+    (format === 'wav' ? 48000 * 4 : format === 'mp3' ? 192000 / 8 : (bitrate * 1e6 + 192000) / 8);
   useEffect(() => {
     let active = true;
     setCaps(null);
@@ -65,6 +114,7 @@ export default function ExportDialog({ project, onClose }: Props) {
     setStatus('running');
     setError('');
     setBlob(null);
+    setAudioStats(undefined);
     setProgress(0);
     setStage('엔진 시작');
     worker.current?.terminate();
@@ -82,6 +132,7 @@ export default function ExportDialog({ project, onClose }: Props) {
         setProgress(d.progress);
         setStage(d.stage + (d.frames ? ` · ${d.frames}/${d.total} 프레임` : ''));
       } else if (d.type === 'complete') {
+        setAudioStats(d.audio);
         const result = new Blob([d.buffer], {
           type:
             format === 'mp4'
@@ -109,7 +160,13 @@ export default function ExportDialog({ project, onClose }: Props) {
       w.terminate();
       worker.current = null;
     };
-    w.postMessage({ type: 'export', project: snapshot, format, bitrate: bitrate * 1e6 });
+    w.postMessage({
+      type: 'export',
+      project: snapshot,
+      format,
+      bitrate: bitrate * 1e6,
+      range: { start: from, end: to },
+    });
   }
   function cancel() {
     generation.current++;
@@ -128,7 +185,12 @@ export default function ExportDialog({ project, onClose }: Props) {
     setOutputUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [blob]);
-  const canExport = !!caps?.[format] && !missing.length && length > 0 && length <= 300;
+  const canExport =
+    !!caps?.[format] &&
+    !missing.length &&
+    length > 0 &&
+    length <= 300 &&
+    estimate < 256 * 1024 * 1024;
   return (
     <div
       className="modal-backdrop"
@@ -186,9 +248,87 @@ export default function ExportDialog({ project, onClose }: Props) {
             </span>
           </div>
           <span className="local-pill">기기에서 처리</span>
+          {status !== 'running' && status !== 'done' ? (
+            <button
+              className="secondary"
+              onClick={() => setSettingsOpen(!settingsOpen)}
+              aria-expanded={settingsOpen}
+            >
+              출력 설정 변경
+            </button>
+          ) : null}
         </div>
         {status !== 'running' && status !== 'done' ? (
           <>
+            {settingsOpen ? (
+              <fieldset className="export-settings">
+                <legend>프로젝트 캔버스와 출력에 함께 적용</legend>
+                <Field label="출력 화면 비율">
+                  <select
+                    value={ratioOf(snapshot)}
+                    onChange={(e) =>
+                      settings(
+                        setRatio(
+                          snapshot,
+                          e.target.value as keyof typeof ratios,
+                          Math.min(snapshot.width, snapshot.height),
+                        ),
+                      )
+                    }
+                  >
+                    {Object.keys(ratios).map((key) => (
+                      <option key={key}>{key}</option>
+                    ))}
+                    <option value="사용자 지정" disabled>
+                      사용자 지정
+                    </option>
+                  </select>
+                </Field>
+                <Field label="출력 해상도">
+                  <select
+                    value={Math.min(snapshot.width, snapshot.height) >= 1080 ? 1080 : 720}
+                    onChange={(e) =>
+                      settings(
+                        setRatio(
+                          snapshot,
+                          ratioOf(snapshot) === '사용자 지정'
+                            ? '16:9'
+                            : (ratioOf(snapshot) as keyof typeof ratios),
+                          Number(e.target.value),
+                        ),
+                      )
+                    }
+                  >
+                    <option value={720}>720p</option>
+                    <option value={1080}>1080p</option>
+                  </select>
+                </Field>
+                <Field label="출력 FPS">
+                  <select
+                    value={snapshot.fps}
+                    onChange={(e) => settings({ ...snapshot, fps: Number(e.target.value) })}
+                  >
+                    {[24, 25, 30, 50, 60].map((fps) => (
+                      <option key={fps}>{fps}</option>
+                    ))}
+                  </select>
+                </Field>
+              </fieldset>
+            ) : null}
+            {range && range.end > range.start ? (
+              <Field label="출력 범위">
+                <select
+                  value={useRange ? 'range' : 'all'}
+                  onChange={(e) => setUseRange(e.target.value === 'range')}
+                >
+                  <option value="all">프로젝트 전체</option>
+                  <option value="range">
+                    I/O 선택 구간 · {seconds(range.start).toFixed(2)}–
+                    {seconds(range.end).toFixed(2)}초
+                  </option>
+                </select>
+              </Field>
+            ) : null}
             <Field label="파일 이름">
               <input value={filename} onChange={(e) => setFilename(e.target.value)} />
             </Field>
@@ -213,26 +353,30 @@ export default function ExportDialog({ project, onClose }: Props) {
             </Field>
             {format === 'mp4' || format === 'webm' ? (
               <>
-                <Field label="품질">
-                  <div className="segmented">
+                <fieldset className="quality-field">
+                  <legend>품질</legend>
+                  <div className="segmented" role="radiogroup" aria-label="출력 품질">
                     {[
                       ['low', '낮음', 3],
                       ['standard', '표준', 8],
                       ['high', '높음', 16],
                     ].map(([key, label, value]) => (
-                      <button
-                        key={key}
-                        className={quality === key ? 'selected' : ''}
-                        onClick={() => {
-                          setQuality(String(key));
-                          setBitrate(Number(value));
-                        }}
-                      >
+                      <label key={key} className={quality === key ? 'selected' : ''}>
+                        <input
+                          type="radio"
+                          name="output-quality"
+                          value={key}
+                          checked={quality === key}
+                          onChange={() => {
+                            setQuality(String(key));
+                            setBitrate(Number(value));
+                          }}
+                        />
                         {label}
-                      </button>
+                      </label>
                     ))}
                   </div>
-                </Field>
+                </fieldset>
                 <details className="advanced-export">
                   <summary>고급 설정</summary>
                   <Field label="비트레이트 (Mbps)">
@@ -251,9 +395,20 @@ export default function ExportDialog({ project, onClose }: Props) {
               </>
             ) : null}
             <p className="export-note">
-              화면 비율·해상도·FPS는 오른쪽 프로젝트 설정에서 변경하세요. 실제 인코더를 확인한
-              형식만 선택할 수 있습니다.
+              예상 파일 크기 약 {formatBytes(estimate)}. 출력 설정 변경은 프로젝트 캔버스에도
+              적용됩니다. 실제 인코더를 확인한 형식만 선택할 수 있습니다.
             </p>
+            {caps?.aacFallback && format === 'mp4' ? (
+              <p className="export-note">
+                브라우저 AAC 인코더 대신 기기 안에서 WASM AAC 인코더를 사용합니다. 원본은 업로드되지
+                않습니다.
+              </p>
+            ) : null}
+            {estimate >= 256 * 1024 * 1024 ? (
+              <p className="warning">
+                예상 파일이 256MB 제한을 초과합니다. 범위나 비트레이트를 줄이세요.
+              </p>
+            ) : null}
             {!caps ? (
               <p className="checking">
                 <LoaderCircle size={14} className="spin" /> 현재 환경의 인코더 확인 중
@@ -266,6 +421,38 @@ export default function ExportDialog({ project, onClose }: Props) {
               </p>
             ) : null}
             {length > 300 ? <p className="warning">현재 내보내기 길이는 5분까지입니다.</p> : null}
+            <details className="export-preflight">
+              <summary>
+                출력 사전 검사{' '}
+                {missing.length +
+                Number(gaps > 0) +
+                Number(riskyText.length > 0) +
+                Number(overlaps.length > 0)
+                  ? '· 확인할 항목 있음'
+                  : '· 확인 완료'}
+              </summary>
+              {gaps > 0 ? (
+                <p>
+                  영상 레이어가 없는 구간 {seconds(gaps).toFixed(2)}초는 캔버스 배경으로 출력됩니다.
+                </p>
+              ) : null}
+              {overlaps.length ? (
+                <p>
+                  동일 트랙 중첩: {overlaps.map((t) => t.name).join(', ')}. 뒤에서 시작한 클립이
+                  먼저 표시됩니다.
+                </p>
+              ) : null}
+              {riskyText.length ? (
+                <p>
+                  화면 밖이거나 폭이 큰 텍스트: {riskyText.map((c) => c.name).join(', ')}.
+                  미리보기에서 위치·줄바꿈을 확인하세요 (대략적인 검사).
+                </p>
+              ) : null}
+              <p>
+                폰트는 출력 전에 실제 로딩을 기다립니다. 영상·오디오 길이는 출력 FPS에 맞춰 마지막
+                프레임까지 확장될 수 있습니다.
+              </p>
+            </details>
           </>
         ) : null}
         {status === 'running' ? (
@@ -284,8 +471,32 @@ export default function ExportDialog({ project, onClose }: Props) {
             <p>
               {formatBytes(blob.size)} · {format.toUpperCase()}
             </p>
+            {audioStats && audioStats.clippedSamples > 0 ? (
+              <p className="warning">
+                오디오 클리핑 {audioStats.clippedSamples}개 샘플 · 원본 믹스 피크{' '}
+                {(20 * Math.log10(audioStats.peak)).toFixed(1)} dBFS. 편집으로 돌아가 프로젝트
+                메뉴의 전체 음량 검사를 적용하세요.
+              </p>
+            ) : null}
             {format === 'mp4' || format === 'webm' ? (
-              <video className="output-player" controls src={outputUrl} />
+              <>
+                <video
+                  className={`output-player ${largePlayer ? 'large' : ''}`}
+                  style={{
+                    aspectRatio: `${snapshot.width}/${snapshot.height}`,
+                    width: `min(100%, ${(((largePlayer ? 70 : 45) * snapshot.width) / snapshot.height).toFixed(2)}vh)`,
+                  }}
+                  controls
+                  src={outputUrl}
+                />
+                <button
+                  className="secondary"
+                  onClick={() => setLargePlayer(!largePlayer)}
+                  aria-pressed={largePlayer}
+                >
+                  {largePlayer ? '결과 미리보기 축소' : '결과 미리보기 확대'}
+                </button>
+              </>
             ) : null}
           </div>
         ) : null}

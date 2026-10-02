@@ -15,21 +15,31 @@ test('production bundle: real files, Korean, native playback and all output engi
   });
   await fs.mkdir('artifacts/inputs', { recursive: true });
   for (const f of fixtures) await fs.writeFile('artifacts/inputs/' + f.name, Buffer.from(f.bytes));
+  const fallback = process.env.FORCE_AAC_FALLBACK === '1';
+  if (fallback)
+    await page.route('**/assets/engine.worker-*.js', async (route) => {
+      const response = await route.fetch(),
+        body = await response.text();
+      await route.fulfill({
+        response,
+        body: `const __auditAacCheck=AudioEncoder.isConfigSupported.bind(AudioEncoder);AudioEncoder.isConfigSupported=async c=>c.codec.startsWith('mp4a')?{supported:false,config:c}:__auditAacCheck(c);\n${body}`,
+      });
+    });
   await page.goto(process.env.PRODUCTION_URL!);
+  if (fallback) await expect(page.locator('.output-support')).toContainText('로컬 AAC 대체 인코더');
   await expect(page.getByRole('button', { name: '파일 선택', exact: true })).toBeVisible();
-  await page
-    .getByLabel('미디어 파일 선택')
-    .setInputFiles(
-      fixtures.map((f: { name: string; mimeType: string; bytes: number[] }) => ({
-        name: f.name,
-        mimeType: f.mimeType,
-        buffer: Buffer.from(f.bytes),
-      })),
-    );
+  await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
+  await page.getByLabel('미디어 파일 선택').setInputFiles(
+    fixtures.map((f: { name: string; mimeType: string; bytes: number[] }) => ({
+      name: f.name,
+      mimeType: f.mimeType,
+      buffer: Buffer.from(f.bytes),
+    })),
+  );
   await expect(page.locator('.asset-card')).toHaveCount(4);
   await expect(page.locator('.import-progress')).toHaveCount(0);
   await page.getByRole('button', { name: '재생 (Space)', exact: true }).click();
-  await expect(page.locator('.current-time')).not.toHaveText('00:00:00:00');
+  await expect(page.locator('.current-time')).not.toHaveValue('00:00:00:00');
   await page.getByRole('button', { name: '일시정지 (Space)', exact: true }).click();
   await page.getByRole('button', { name: '텍스트', exact: true }).click();
   await page.getByRole('button', { name: /제목 추가/ }).click();
@@ -37,7 +47,17 @@ test('production bundle: real files, Korean, native playback and all output engi
   await page.getByLabel('텍스트 내용').press('Tab');
   await page.screenshot({ path: 'artifacts/production-editor.png' });
   const report: Record<string, unknown> = {};
-  for (const format of ['mp4', 'webm', 'wav', 'mp3']) {
+  for (const preset of ['mp4', 'mp4-portrait', 'webm', 'wav', 'mp3']) {
+    const format = preset === 'mp4-portrait' ? 'mp4' : preset;
+    if (preset === 'mp4-portrait') {
+      await page.getByRole('region', { name: '편집 타임라인', exact: true }).focus();
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: '9:16', exact: true }).click();
+      await expect
+        .poll(async () => (await page.getByLabel('프로젝트 합성 영상').boundingBox())?.width ?? 0)
+        .toBeGreaterThan(100);
+      await expect(page.locator('.preview-error')).toHaveCount(0);
+    }
     await page.getByRole('button', { name: '내보내기', exact: true }).click();
     await expect(page.getByLabel('파일 형식')).toBeEnabled();
     await page.getByLabel('파일 형식').selectOption(format);
@@ -61,20 +81,21 @@ test('production bundle: real files, Korean, native playback and all output engi
         await v.play();
         return { width: v.videoWidth, height: v.videoHeight, duration: v.duration };
       });
-      expect(metadata.width).toBe(1280);
-      expect(metadata.height).toBe(720);
+      expect(metadata.width).toBe(preset === 'mp4' ? 1280 : 720);
+      expect(metadata.height).toBe(preset === 'mp4' ? 720 : 1280);
       await expect
         .poll(() => player.evaluate((v: HTMLVideoElement) => v.currentTime))
         .toBeGreaterThan(0.1);
-      report[format] = metadata;
+      report[preset] = metadata;
     }
     const waiting = page.waitForEvent('download');
     await page.getByRole('button', { name: '파일 다운로드', exact: true }).click();
-    await (await waiting).saveAs(`artifacts/production.${format}`);
+    const file = `artifacts/production${fallback ? '-fallback' : ''}-${preset}.${format}`;
+    await (await waiting).saveAs(file);
     await page.getByRole('button', { name: '편집으로 돌아가기', exact: true }).click();
-    const bytes = Array.from(await fs.readFile(`artifacts/production.${format}`));
-    report[format] = {
-      ...((report[format] as object) ?? {}),
+    const bytes = Array.from(await fs.readFile(file));
+    report[preset] = {
+      ...((report[preset] as object) ?? {}),
       ...(await fixturePage.evaluate(async (bytes) => {
         const url = '/node_modules/mediabunny/dist/modules/src/index.js';
         const { Input, BufferSource, ALL_FORMATS, AudioSampleSink } = await import(
@@ -107,11 +128,15 @@ test('production bundle: real files, Korean, native playback and all output engi
         }
       }, bytes)),
     };
-    expect((report[format] as { hasAudioEnergy: boolean }).hasAudioEnergy).toBe(true);
+    expect((report[preset] as { hasAudioEnergy: boolean }).hasAudioEnergy).toBe(true);
   }
   await fs.writeFile(
-    'artifacts/production-verification.json',
-    JSON.stringify({ url: process.env.PRODUCTION_URL, outputs: report, errors }, null, 2),
+    `artifacts/production${fallback ? '-fallback' : ''}-verification.json`,
+    JSON.stringify(
+      { url: process.env.PRODUCTION_URL, aacFallbackInjected: fallback, outputs: report, errors },
+      null,
+      2,
+    ),
   );
   expect(errors).toEqual([]);
   await fixturePage.close();

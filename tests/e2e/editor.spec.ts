@@ -10,15 +10,14 @@ async function fixtures(page: Page) {
 }
 async function importSamples(page: Page) {
   const samples = await fixtures(page);
-  await page
-    .getByLabel('미디어 파일 선택')
-    .setInputFiles(
-      samples.map((f: { name: string; mimeType: string; bytes: number[] }) => ({
-        name: f.name,
-        mimeType: f.mimeType,
-        buffer: Buffer.from(f.bytes),
-      })),
-    );
+  await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
+  await page.getByLabel('미디어 파일 선택').setInputFiles(
+    samples.map((f: { name: string; mimeType: string; bytes: number[] }) => ({
+      name: f.name,
+      mimeType: f.mimeType,
+      buffer: Buffer.from(f.bytes),
+    })),
+  );
   await expect(page.locator('.asset-card')).toHaveCount(4);
   await expect(page.locator('.import-progress')).toHaveCount(0);
   return samples;
@@ -130,7 +129,8 @@ test('real local editing, linked cuts, layers, Korean, audio, outputs and recove
   await page.screenshot({ path: 'artifacts/imported.png' });
   await page.locator('.timeline-clip.video').filter({ hasText: 'first.mp4' }).click();
   const ruler = await page.locator('.ruler').boundingBox();
-  await page.mouse.click(ruler!.x + 44, ruler!.y + 15);
+  await page.getByLabel('재생헤드 타임코드').fill('1');
+  await page.getByLabel('재생헤드 타임코드').press('Enter');
   await page.keyboard.press('Control+b');
   await expect(page.locator('.timeline-clip.video')).toHaveCount(3);
   await expect(page.locator('.timeline-clip.audio')).toHaveCount(4);
@@ -230,13 +230,11 @@ test('real local editing, linked cuts, layers, Korean, audio, outputs and recove
   expect(restored.clips).toEqual(saved.clips);
   expect(restored.width).toBe(saved.width);
   // Invalid input keeps the project. Cancelling export also keeps its snapshot.
-  await page
-    .getByLabel('미디어 파일 선택')
-    .setInputFiles({
-      name: 'broken.avi',
-      mimeType: 'video/x-msvideo',
-      buffer: Buffer.from('invalid input'),
-    });
+  await page.getByLabel('미디어 파일 선택').setInputFiles({
+    name: 'broken.avi',
+    mimeType: 'video/x-msvideo',
+    buffer: Buffer.from('invalid input'),
+  });
   await expect(page.locator('.toast')).toContainText('분석');
   await expect(page.locator('.asset-card')).toHaveCount(4);
   await page.getByRole('button', { name: '내보내기', exact: true }).click();
@@ -269,7 +267,7 @@ test('real local editing, linked cuts, layers, Korean, audio, outputs and recove
   // Lose a stored original, reload, and reconnect the same real file.
   await page.evaluate(async (assetId) => {
     await new Promise<void>((resolve, reject) => {
-      const req = indexedDB.open('cyancut-local', 1);
+      const req = indexedDB.open('cyancut-local');
       req.onsuccess = () => {
         const db = req.result,
           tx = db.transaction('files', 'readwrite');

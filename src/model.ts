@@ -45,6 +45,12 @@ export type Clip = {
   duration: number;
   sourceIn: number;
   linkId?: string;
+  groupId?: string;
+  speed?: number;
+  preservePitch?: boolean;
+  flipX?: boolean;
+  flipY?: boolean;
+  crop?: { left: number; right: number; top: number; bottom: number };
   x: number;
   y: number;
   scale: number;
@@ -64,6 +70,7 @@ export type Track = {
   locked: boolean;
   hidden: boolean;
   muted: boolean;
+  solo?: boolean;
 };
 export type Project = {
   version: 1;
@@ -76,6 +83,9 @@ export type Project = {
   assets: Asset[];
   tracks: Track[];
   clips: Clip[];
+  workRange?: { start: number; end: number };
+  masterVolume?: number;
+  safeArea?: boolean;
 };
 export function emptyProject(): Project {
   return {
@@ -119,9 +129,23 @@ export const clipDefaults = (): Pick<
   fadeOut: 0,
 });
 export function linked(p: Project, ids: string[]): Clip[] {
-  const chosen = p.clips.filter((c) => ids.includes(c.id));
-  const links = new Set(chosen.map((c) => c.linkId).filter(Boolean));
-  return p.clips.filter((c) => ids.includes(c.id) || (!!c.linkId && links.has(c.linkId)));
+  const chosen = new Set(ids);
+  let changed = true;
+  while (changed) {
+    const members = p.clips.filter((c) => chosen.has(c.id));
+    const links = new Set(members.map((c) => c.linkId).filter(Boolean)),
+      groups = new Set(members.map((c) => c.groupId).filter(Boolean));
+    changed = false;
+    for (const c of p.clips)
+      if (
+        !chosen.has(c.id) &&
+        ((c.linkId && links.has(c.linkId)) || (c.groupId && groups.has(c.groupId)))
+      ) {
+        chosen.add(c.id);
+        changed = true;
+      }
+  }
+  return p.clips.filter((c) => chosen.has(c.id));
 }
 export function editable(p: Project, clips: Clip[]) {
   return clips.length > 0 && !clips.some((c) => p.tracks.find((t) => t.id === c.trackId)?.locked);
@@ -182,7 +206,7 @@ export function split(p: Project, selected: string[], at: number): Project {
       ...structuredClone(c),
       id: id(),
       start: at,
-      sourceIn: c.sourceIn + left,
+      sourceIn: c.sourceIn + Math.round(left * (c.speed ?? 1)),
       duration: c.duration - left,
       transition: undefined,
       fadeIn: 0,
@@ -233,11 +257,14 @@ export function trim(
     const a = p.assets.find((a) => a.id === c.assetId);
     const finite = c.kind === 'video' || c.kind === 'audio';
     if (edge === 'start') {
-      lower = Math.max(lower, -c.start, finite ? -c.sourceIn : -Infinity);
+      lower = Math.max(lower, -c.start, finite ? -c.sourceIn / (c.speed ?? 1) : -Infinity);
       upper = Math.min(upper, c.duration - min);
     } else {
       lower = Math.max(lower, min - c.duration);
-      upper = Math.min(upper, finite && a ? a.duration - c.sourceIn - c.duration : Infinity);
+      upper = Math.min(
+        upper,
+        finite && a ? (a.duration - c.sourceIn) / (c.speed ?? 1) - c.duration : Infinity,
+      );
     }
   }
   const d = Math.max(lower, Math.min(upper, Math.round(delta)));
@@ -247,7 +274,7 @@ export function trim(
       if (edge === 'start') {
         c.start += d;
         c.duration -= d;
-        c.sourceIn += d;
+        c.sourceIn += Math.round(d * (c.speed ?? 1));
       } else c.duration += d;
     }
   return normalize(next);
@@ -306,12 +333,14 @@ export function paste(p: Project, copied: Clip[], at: number, activeTrack?: stri
     if (!track || track.locked || track.kind !== (c.kind === 'audio' ? 'audio' : 'visual'))
       return p;
     if (c.linkId && !groups.has(c.linkId)) groups.set(c.linkId, id());
+    if (c.groupId && !groups.has(c.groupId)) groups.set(c.groupId, id());
     next.clips.push({
       ...structuredClone(c),
       id: id(),
       start: c.start + offset,
       trackId: track.id,
       linkId: c.linkId ? groups.get(c.linkId) : undefined,
+      groupId: c.groupId ? groups.get(c.groupId) : undefined,
     });
   }
   return normalize(next);
@@ -334,6 +363,11 @@ export function reorder(
   const next = structuredClone(p);
   const leftIds = new Set(linked(p, [left.id]).map((c) => c.id)),
     rightIds = new Set(linked(p, [right.id]).map((c) => c.id));
+  if ([...leftIds].some((key) => rightIds.has(key)) || targets.some((item) => item.groupId))
+    return {
+      project: p,
+      error: '그룹을 해제한 뒤 인접 클립을 교환하세요. 그룹은 드래그로 이동할 수 있습니다.',
+    };
   for (const item of next.clips) {
     if (leftIds.has(item.id)) item.start = left.start + right.duration + gap;
     else if (rightIds.has(item.id)) item.start = left.start;
@@ -341,6 +375,11 @@ export function reorder(
   return { project: normalize(next) };
 }
 export function normalize(p: Project): Project {
+  if (p.workRange)
+    p.workRange = {
+      start: Math.min(p.workRange.start, duration(p)),
+      end: Math.min(p.workRange.end, duration(p)),
+    };
   for (const c of p.clips) {
     c.start = Math.max(0, Math.round(c.start));
     c.duration = Math.max(frameTick(1, p.fps), Math.round(c.duration));
@@ -361,7 +400,9 @@ export function normalize(p: Project): Project {
       c.transition.duration = Math.min(
         c.transition.duration,
         prev.duration / 2,
-        c.transition.kind === 'dissolve' && c.kind === 'video' ? c.sourceIn : Infinity,
+        c.transition.kind === 'dissolve' && c.kind === 'video'
+          ? c.sourceIn / (c.speed ?? 1)
+          : Infinity,
       );
       if (c.transition.duration < frameTick(1, p.fps)) c.transition = undefined;
     }
@@ -383,7 +424,7 @@ export function setTransition(
   const max = Math.min(
     c.duration / 2,
     prev.duration / 2,
-    kind === 'dissolve' && c.kind === 'video' ? c.sourceIn : Infinity,
+    kind === 'dissolve' && c.kind === 'video' ? c.sourceIn / (c.speed ?? 1) : Infinity,
   );
   const d = Math.round(Math.min(requested, max));
   if (d < frameTick(1, p.fps))
@@ -412,7 +453,12 @@ export type Layer = {
 export function layers(p: Project, time: number): Layer[] {
   const output: Layer[] = [];
   for (const track of [...p.tracks].reverse()) {
-    if (track.kind === 'audio' || track.hidden) continue;
+    if (
+      track.kind === 'audio' ||
+      track.hidden ||
+      (p.tracks.some((t) => t.kind === 'visual' && t.solo) && !track.solo)
+    )
+      continue;
     const clips = p.clips
       .filter((c) => c.trackId === track.id && c.kind !== 'audio')
       .sort((a, b) => a.start - b.start);
@@ -420,7 +466,7 @@ export function layers(p: Project, time: number): Layer[] {
       if (time < c.start || time >= c.start + c.duration) continue;
       const layer: Layer = {
         clip: c,
-        sourceTime: seconds(c.sourceIn + time - c.start),
+        sourceTime: seconds(c.sourceIn + (time - c.start) * (c.speed ?? 1)),
         alpha: c.opacity,
       };
       const next = clips.find((x) => x.start === c.start + c.duration && x.transition);
@@ -431,7 +477,7 @@ export function layers(p: Project, time: number): Layer[] {
           output.push(layer);
           output.push({
             clip: next,
-            sourceTime: seconds(next.sourceIn + time - next.start),
+            sourceTime: seconds(next.sourceIn + (time - next.start) * (next.speed ?? 1)),
             alpha: next.opacity * progress,
           });
           continue;
@@ -462,6 +508,28 @@ export function audioGain(c: Clip, time: number) {
       c.fadeOut ? Math.max(0, (c.duration - local) / c.fadeOut) : 1,
     )
   );
+}
+/** Sources that can actually contribute to a range, including dissolve pre-roll. */
+export function requiredAssets(p: Project, start: number, end: number, visual = true) {
+  const keys = new Set<string>();
+  for (const c of p.clips) {
+    if (!c.assetId) continue;
+    const track = p.tracks.find((t) => t.id === c.trackId)!;
+    if (c.kind === 'audio') {
+      if (track.muted || (p.tracks.some((t) => t.kind === 'audio' && t.solo) && !track.solo))
+        continue;
+    } else {
+      if (
+        !visual ||
+        track.hidden ||
+        (p.tracks.some((t) => t.kind === 'visual' && t.solo) && !track.solo)
+      )
+        continue;
+    }
+    const pre = c.transition?.kind === 'dissolve' ? c.transition.duration : 0;
+    if (c.start - pre < end && c.start + c.duration > start) keys.add(c.assetId);
+  }
+  return keys;
 }
 export function snapTime(
   p: Project,
@@ -529,6 +597,11 @@ export function validateProject(value: unknown): Project {
       typeof t.name !== 'string'
     )
       fail();
+    if (
+      [t.locked, t.hidden, t.muted].some((v) => typeof v !== 'boolean') ||
+      (t.solo !== undefined && typeof t.solo !== 'boolean')
+    )
+      fail();
     tracks.add(t.id);
   }
   for (const a of p.assets) {
@@ -556,6 +629,22 @@ export function validateProject(value: unknown): Project {
     )
       fail();
     clips.add(c.id);
+    if (c.groupId !== undefined && typeof c.groupId !== 'string') fail();
+    if (c.speed !== undefined && (!Number.isFinite(c.speed) || c.speed < 0.5 || c.speed > 2))
+      fail();
+    if (
+      c.crop &&
+      (!['left', 'right', 'top', 'bottom'].every(
+        (k) =>
+          Number.isFinite(c.crop![k as keyof typeof c.crop]) &&
+          c.crop![k as keyof typeof c.crop] >= 0,
+      ) ||
+        c.crop.left + c.crop.right > 0.95 ||
+        c.crop.top + c.crop.bottom > 0.95)
+    )
+      fail();
+    if ([c.flipX, c.flipY, c.preservePitch].some((v) => v !== undefined && typeof v !== 'boolean'))
+      fail();
     for (const n of ['start', 'duration', 'sourceIn'] as const)
       if (!Number.isSafeInteger(c[n]) || c[n] < 0) fail();
     for (const n of [
@@ -583,7 +672,11 @@ export function validateProject(value: unknown): Project {
       fail();
     if (c.kind !== 'text' && !assets.has(c.assetId ?? '')) fail();
     const a = p.assets.find((a) => a.id === c.assetId);
-    if ((c.kind === 'video' || c.kind === 'audio') && a && c.sourceIn + c.duration > a.duration + 1)
+    if (
+      (c.kind === 'video' || c.kind === 'audio') &&
+      a &&
+      c.sourceIn + Math.round(c.duration * (c.speed ?? 1)) > a.duration + 1
+    )
       fail();
     if (
       c.kind === 'text' &&
@@ -617,11 +710,27 @@ export function validateProject(value: unknown): Project {
           c.start !== base.start ||
           c.duration !== base.duration ||
           c.sourceIn !== base.sourceIn ||
-          c.assetId !== base.assetId,
+          c.assetId !== base.assetId ||
+          (c.speed ?? 1) !== (base.speed ?? 1),
       )
     )
       fail();
   }
+  if (
+    p.workRange &&
+    (!Number.isSafeInteger(p.workRange.start) ||
+      !Number.isSafeInteger(p.workRange.end) ||
+      p.workRange.start < 0 ||
+      p.workRange.end < p.workRange.start ||
+      p.workRange.end > tick(3600))
+  )
+    fail();
+  if (
+    p.masterVolume !== undefined &&
+    (!Number.isFinite(p.masterVolume) || p.masterVolume < 0 || p.masterVolume > 4)
+  )
+    fail();
+  if (p.safeArea !== undefined && typeof p.safeArea !== 'boolean') fail();
   if (p.clips.length > 10000 || p.assets.length > 1000 || duration(p) > tick(3600)) fail();
   return structuredClone(p);
 }

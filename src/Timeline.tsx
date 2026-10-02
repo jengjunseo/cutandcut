@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, memo } from 'react';
+import { useRef, useState, useEffect, useMemo, memo } from 'react';
 import {
   MousePointer2,
   Scissors,
@@ -32,10 +32,12 @@ import {
   move,
   trim,
   linked,
+  editable,
   type Project,
   type Clip,
 } from './model';
 import { IconButton } from './ui';
+import PrecisionTools from './PrecisionTools';
 type Props = {
   project: Project;
   time: number;
@@ -96,8 +98,131 @@ export default memo(function Timeline({
     } | null>(null),
     [snapPoint, setSnapPoint] = useState<number | null>(null),
     [trackMenu, setTrackMenu] = useState(false);
-  const timelineLength = Math.max(30, seconds(duration(p)) + 8);
-  const width = Math.max(viewport - 170, timelineLength * zoom);
+  const fittedProject = useRef('');
+  const [box, setBox] = useState<{ x: number; y: number; width: number; height: number }>(),
+    ignoreClick = useRef(false);
+  function boxSelect(e: React.PointerEvent) {
+    if (
+      e.button !== 0 ||
+      e.pointerType === 'touch' ||
+      e.target !== e.currentTarget ||
+      tool !== 'select'
+    )
+      return;
+    const node = scroll.current!,
+      target = e.currentTarget as HTMLElement,
+      rect = node.getBoundingClientRect();
+    const originX = e.clientX - rect.left + node.scrollLeft,
+      originY = e.clientY - rect.top + node.scrollTop;
+    const initial = e.shiftKey || e.ctrlKey || e.metaKey ? selected : [];
+    let x = e.clientX,
+      y = e.clientY,
+      moved = false,
+      ids: string[] = initial,
+      raf = 0;
+    target.setPointerCapture(e.pointerId);
+    function update(schedule = true) {
+      const r = node.getBoundingClientRect();
+      if (x > r.right - 32) node.scrollLeft += 12;
+      else if (x < r.left + 232) node.scrollLeft -= 12;
+      if (y > r.bottom - 24) node.scrollTop += 10;
+      else if (y < r.top + 24) node.scrollTop -= 10;
+      const cx = x - r.left + node.scrollLeft,
+        cy = y - r.top + node.scrollTop;
+      const area = {
+        x: Math.min(cx, originX),
+        y: Math.min(cy, originY),
+        width: Math.abs(cx - originX),
+        height: Math.abs(cy - originY),
+      };
+      if (Math.abs(cx - originX) + Math.abs(cy - originY) > 5) moved = true;
+      if (moved) {
+        setBox(area);
+        const hits = p.clips.filter((c) => {
+          const row = node.querySelector<HTMLElement>(`[data-track-id="${c.trackId}"]`);
+          if (!row || p.tracks.find((t) => t.id === c.trackId)?.locked) return false;
+          const bounds = row.getBoundingClientRect(),
+            top = bounds.top - r.top + node.scrollTop;
+          return (
+            200 + seconds(c.start + c.duration) * zoom > area.x &&
+            200 + seconds(c.start) * zoom < area.x + area.width &&
+            top + bounds.height > area.y &&
+            top < area.y + area.height
+          );
+        });
+        ids = [...new Set([...initial, ...hits.map((c) => c.id)])];
+      }
+      if (schedule) raf = requestAnimationFrame(() => update());
+    }
+    const move = (event: PointerEvent) => {
+      x = event.clientX;
+      y = event.clientY;
+    };
+    const cleanup = () => {
+      cancelAnimationFrame(raf);
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', end);
+      target.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('keydown', key);
+      if (target.hasPointerCapture(e.pointerId)) target.releasePointerCapture(e.pointerId);
+      setBox(undefined);
+    };
+    const end = (event: PointerEvent) => {
+      x = event.clientX;
+      y = event.clientY;
+      update(false);
+      cleanup();
+      if (moved) {
+        ignoreClick.current = true;
+        select(ids);
+      }
+    };
+    const cancel = () => {
+      cleanup();
+      ignoreClick.current = true;
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        cancel();
+      }
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', end, { once: true });
+    target.addEventListener('pointercancel', cancel, { once: true });
+    window.addEventListener('keydown', key);
+    raf = requestAnimationFrame(() => update());
+  }
+  useEffect(() => {
+    const node = scroll.current;
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => setViewport(entry.contentRect.width));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!p.clips.length || fittedProject.current === p.id) return;
+    fittedProject.current = p.id;
+    setZoom(Math.max(8, Math.min(200, (viewport - 240) / Math.max(6, seconds(duration(p)) + 1))));
+  }, [p.id, p.clips.length, viewport]);
+  const canEdit = editable(p, linked(p, selected));
+  const overlapping = useMemo(() => {
+    const ids = new Set<string>();
+    for (const track of p.tracks.filter((t) => t.kind === 'visual')) {
+      const clips = p.clips.filter((c) => c.trackId === track.id).sort((a, b) => a.start - b.start);
+      let end = -1;
+      clips.forEach((c, i) => {
+        if (end > c.start || (clips[i + 1] && clips[i + 1].start < c.start + c.duration))
+          ids.add(c.id);
+        end = Math.max(end, c.start + c.duration);
+      });
+    }
+    return ids;
+  }, [p.clips, p.tracks]);
+  const canSplit =
+    canEdit && linked(p, selected).some((c) => c.start < time && c.start + c.duration > time);
+  const timelineLength = Math.max(6, seconds(duration(p)) + 2);
+  const width = Math.max(viewport - 200, timelineLength * zoom);
   const step = zoom >= 100 ? 1 : zoom >= 40 ? 2 : zoom >= 16 ? 5 : 10;
   const ticks = Array.from({ length: Math.floor(width / zoom / step) + 1 }, (_, i) => i * step);
   const icon = (c: Clip) =>
@@ -117,7 +242,7 @@ export default memo(function Timeline({
         (clientX -
           scroll.current!.getBoundingClientRect().left +
           scroll.current!.scrollLeft -
-          170) /
+          200) /
           zoom,
       ),
     );
@@ -305,6 +430,10 @@ export default memo(function Timeline({
     setGhost({ track: trackId, start: t, duration: asset?.duration ?? tick(5), name });
   }
   function blankClick(e: React.MouseEvent, trackId: string) {
+    if (ignoreClick.current) {
+      ignoreClick.current = false;
+      return;
+    }
     if (e.target !== e.currentTarget) return;
     setActiveTrack(trackId);
     if (!e.shiftKey) select([]);
@@ -322,29 +451,38 @@ export default memo(function Timeline({
             <MousePointer2 size={16} />
           </IconButton>
           <IconButton
-            label="분할 도구 (B) · 클립 클릭 후 분할 버튼"
+            label="분할 도구 (B) · 클릭한 위치에서 분할"
             active={tool === 'split'}
             onClick={() => setTool('split')}
           >
             <Scissors size={16} />
           </IconButton>
           <span className="toolbar-divider" />
-          <button className="text-tool" disabled={!selected.length} onClick={splitAction}>
+          <button
+            className="text-tool"
+            disabled={!canSplit}
+            title={
+              !canEdit
+                ? '선택한 클립과 링크된 트랙의 잠금을 해제하세요.'
+                : '클립 내부로 재생헤드를 이동해 분할'
+            }
+            onClick={splitAction}
+          >
             <Scissors size={14} /> 분할
           </button>
-          <IconButton label="복제 (Ctrl/Cmd+D)" disabled={!selected.length} onClick={duplicate}>
+          <IconButton label="복제 (Ctrl/Cmd+D)" disabled={!canEdit} onClick={duplicate}>
             <Copy size={15} />
           </IconButton>
           <IconButton
             label="삭제 · 빈 공간 유지 (Delete)"
-            disabled={!selected.length}
+            disabled={!canEdit}
             onClick={() => remove()}
           >
             <Trash2 size={15} />
           </IconButton>
           <button
             className="text-tool ripple-tool"
-            disabled={!selected.length}
+            disabled={!canEdit}
             onClick={() => remove(true)}
           >
             리플 삭제
@@ -406,6 +544,15 @@ export default memo(function Timeline({
           </IconButton>
         </div>
       </div>
+      <PrecisionTools
+        p={p}
+        time={time}
+        selected={selected}
+        activeTrack={activeTrack}
+        commit={commit}
+        seek={seek}
+        notify={notify}
+      />
       <div
         className="timeline-scroll"
         ref={scroll}
@@ -417,12 +564,22 @@ export default memo(function Timeline({
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setGhost(null);
         }}
       >
-        <div className="timeline-content" style={{ width: width + 170 }}>
+        <div className="timeline-content" style={{ width: width + 200 }}>
           <div className="ruler-row">
             <div className="track-ruler-label">
               트랙 <span>위쪽 레이어 우선</span>
             </div>
             <div className="ruler" style={{ width }} onPointerDown={rulerDrag}>
+              {p.workRange && p.workRange.end > p.workRange.start ? (
+                <div
+                  className="range-highlight"
+                  title="I/O 선택 구간"
+                  style={{
+                    left: seconds(p.workRange.start) * zoom,
+                    width: seconds(p.workRange.end - p.workRange.start) * zoom,
+                  }}
+                />
+              ) : null}
               {ticks
                 .filter(
                   (t) => t * zoom >= scrollLeft - 100 && t * zoom < scrollLeft + viewport + 100,
@@ -452,6 +609,13 @@ export default memo(function Timeline({
                     onCommit={(name) => patchTrack(track.id, { name })}
                   />
                   <span className="track-number">{index + 1}</span>
+                  <IconButton
+                    label={`${track.name} 단독 재생`}
+                    active={track.solo ?? false}
+                    onClick={() => patchTrack(track.id, { solo: !track.solo })}
+                  >
+                    S
+                  </IconButton>
                 </div>
                 <div className="track-controls">
                   <IconButton
@@ -502,6 +666,7 @@ export default memo(function Timeline({
               </div>
               <div
                 className="track-lane"
+                onPointerDown={boxSelect}
                 style={{ width }}
                 onClick={(e) => blankClick(e, track.id)}
                 onDragOver={(e) => over(e, track.id)}
@@ -533,6 +698,7 @@ export default memo(function Timeline({
                         tabIndex={0}
                         aria-label={`${c.name} 클립 · 시작 ${seconds(c.start).toFixed(2)}초 · 길이 ${seconds(c.duration).toFixed(2)}초`}
                         aria-pressed={selected.includes(c.id)}
+                        title={`${c.name}${c.groupId ? ' · 그룹에 포함' : ''}${track.locked ? ' · 트랙 잠김' : ''}`}
                         className={`timeline-clip ${c.kind} ${selected.includes(c.id) ? 'clip-selected' : ''} ${track.hidden || track.muted ? 'clip-muted' : ''}`}
                         style={{
                           left: seconds(c.start) * zoom,
@@ -575,6 +741,14 @@ export default memo(function Timeline({
                           {icon(c)}
                           <span>{c.kind === 'text' ? c.text?.text : c.name}</span>
                           {c.linkId ? <Link2 size={11} /> : null}
+                          {overlapping.has(c.id) ? (
+                            <small
+                              className="clip-overlap"
+                              title="동일 트랙에서 중첩됨 · 늦게 시작한 클립이 위에 표시됩니다"
+                            >
+                              중첩
+                            </small>
+                          ) : null}
                         </div>
                         {c.kind === 'video' || c.kind === 'image' ? (
                           <div
@@ -654,17 +828,28 @@ export default memo(function Timeline({
           ))}
           <div
             className="playhead"
-            style={{ left: 170 + seconds(time) * zoom, height: 38 + p.tracks.length * 70 }}
+            style={{ left: 200 + seconds(time) * zoom, height: '100%' }}
             onPointerDown={rulerDrag}
           >
             <span className="playhead-head" />
             <div className="playhead-line" />
           </div>
           {snapPoint !== null ? (
-            <div className="snap-guide" style={{ left: 170 + seconds(snapPoint) * zoom }} />
+            <div className="snap-guide" style={{ left: 200 + seconds(snapPoint) * zoom }} />
+          ) : null}
+          {box ? (
+            <div
+              className="selection-box"
+              style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
+            />
           ) : null}
         </div>
       </div>
+      {selected.length ? (
+        <p className="ripple-impact">
+          리플 영향: 전체 {p.tracks.length}개 트랙 · 잠금 또는 겹침이 있으면 작업을 거절합니다.
+        </p>
+      ) : null}
       <div className="timeline-status">
         <span>
           <span className="status-dot" />{' '}

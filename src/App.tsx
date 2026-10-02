@@ -47,7 +47,8 @@ import {
   type Transition,
 } from './model';
 import { History } from './history';
-import { files, inspect, request } from './engine';
+import { files, inspect, request, checkCapabilities, type Capabilities } from './engine';
+import { freeLayer, insertMedia, markRange, clipBoundary, trimToHead, groupClips } from './editing';
 import {
   saveProject,
   restoreProject,
@@ -60,6 +61,9 @@ import { AudioPreview } from './audio-preview';
 import Preview from './Preview';
 import Timeline from './Timeline';
 import Inspector from './Inspector';
+import CaptionPanel from './CaptionPanel';
+import AudioMeter from './AudioMeter';
+import RecentProjects from './RecentProjects';
 import { Field, IconButton, formatBytes } from './ui';
 const ExportDialog = lazy(() => import('./ExportDialog'));
 const shortcuts = [
@@ -81,6 +85,10 @@ const shortcuts = [
   ['S', '스냅 토글'],
   ['Escape', '조작 취소 / 선택 해제'],
   ['?', '단축키 도움말'],
+  ['I / O', '구간 시작 / 끝 지정'],
+  ['↑ / ↓', '이전 / 다음 클립 경계 *'],
+  ['[ / ]', '재생헤드 앞 / 뒤 자르기'],
+  ['Ctrl/Cmd + G / Ctrl/Cmd + Shift + G', '그룹화 / 그룹 해제 *'],
 ];
 export default function App() {
   const [project, setProject] = useState<Project>(emptyProject),
@@ -95,20 +103,28 @@ export default function App() {
     timeRef = useRef(time);
   timeRef.current = time;
   const [playing, setPlaying] = useState(false),
+    [playingRange, setPlayingRange] = useState(false),
     [rate, setRate] = useState(1),
     audio = useRef(new AudioPreview()),
     [snap, setSnap] = useState(true),
     [tool, setTool] = useState<'select' | 'split'>('select'),
     [zoom, setZoom] = useState(44),
-    [tab, setTab] = useState<'media' | 'text' | 'transitions'>('media'),
+    [tab, setTab] = useState<'media' | 'text' | 'transitions' | 'captions'>('media'),
     [saveStatus, setSaveStatus] = useState('불러오는 중'),
     [ready, setReady] = useState(false),
     [importing, setImporting] = useState(''),
+    [importErrors, setImportErrors] = useState<{ file: File; message: string }[]>([]),
     [persistMedia, setPersistMedia] = useState(true),
+    [autoInsert, setAutoInsert] = useState(false),
+    [assetSelection, setAssetSelection] = useState<string[]>([]),
+    [startupCaps, setStartupCaps] = useState<Capabilities>(),
+    [capsError, setCapsError] = useState(''),
     [toast, setToast] = useState(''),
     [exportOpen, setExportOpen] = useState(false),
     [helpOpen, setHelpOpen] = useState(false),
     [projectMenu, setProjectMenu] = useState(false),
+    [recentOpen, setRecentOpen] = useState(false),
+    [processing, setProcessing] = useState(''),
     [dragOver, setDragOver] = useState(false),
     [mobileTab, setMobileTab] = useState('preview'),
     [layout, setLayout] = useState({ left: 270, right: 270, timeline: 330 }),
@@ -119,7 +135,9 @@ export default function App() {
     toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined),
     timelineFocused = useRef(false),
     saveGeneration = useRef(0),
-    importBusy = useRef(false);
+    importBusy = useRef(false),
+    importAbort = useRef<AbortController>(null),
+    taskAbort = useRef<AbortController>(null);
   const notify = useCallback((message: string) => {
     setToast(message);
     clearTimeout(toastTimer.current);
@@ -133,6 +151,28 @@ export default function App() {
     setDraft(undefined);
     setRevision((v) => v + 1);
   }, []);
+  useEffect(() => {
+    let live = true;
+    setStartupCaps(undefined);
+    const timer = setTimeout(
+      () =>
+        void checkCapabilities(project, 8e6)
+          .then((c) => {
+            if (live) {
+              setStartupCaps(c);
+              setCapsError('');
+            }
+          })
+          .catch((e) => {
+            if (live) setCapsError(e.message);
+          }),
+      250,
+    );
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [project.width, project.height, project.fps]);
   const seek = useCallback((value: number) => {
     const p = projectRef.current;
     setPlaying(false);
@@ -189,6 +229,7 @@ export default function App() {
     commit(paste(p, copied, at));
   }
   async function toggle() {
+    setPlayingRange(false);
     if (!projectRef.current.clips.length) return;
     if (playing) {
       setPlaying(false);
@@ -219,10 +260,14 @@ export default function App() {
               notify('일부 원본이 누락되었습니다. 같은 파일을 다시 가져와 재연결하세요.');
           }
         } else if (live) setSaveStatus('저장 준비');
-      } catch {
+      } catch (e) {
         if (live) {
           setSaveStatus('저장소 접근 실패');
-          notify('브라우저 저장소를 사용할 수 없습니다. 프로젝트 파일 저장을 이용하세요.');
+          notify(
+            e instanceof Error
+              ? e.message
+              : '브라우저 저장소를 사용할 수 없습니다. 프로젝트 파일 저장을 이용하세요.',
+          );
         }
       } finally {
         if (live) setReady(true);
@@ -231,6 +276,8 @@ export default function App() {
     return () => {
       live = false;
       audio.current.close();
+      importAbort.current?.abort();
+      taskAbort.current?.abort();
       clearTimeout(toastTimer.current);
     };
   }, [notify]);
@@ -267,7 +314,8 @@ export default function App() {
       last = now;
       playhead += tick(delta * rate);
       const p = projectRef.current;
-      const end = duration(p);
+      const end =
+        playingRange && p.workRange ? Math.min(p.workRange.end, duration(p)) : duration(p);
       playhead = Math.max(0, Math.min(end, playhead));
       audio.current.sync(p, playhead, true, rate);
       if (now - lastUI >= 1000 / Math.min(p.fps, 30)) {
@@ -288,7 +336,7 @@ export default function App() {
       cancelAnimationFrame(raf);
       audio.current.stop();
     };
-  }, [playing, rate]);
+  }, [playing, rate, playingRange]);
   useEffect(() => {
     const handle = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -297,7 +345,8 @@ export default function App() {
         e.isComposing ||
         target?.closest('input,textarea,select,[contenteditable="true"]') ||
         exportOpen ||
-        helpOpen
+        helpOpen ||
+        recentOpen
       )
         return;
       if (e.key === ' ' && target?.closest('button')) return;
@@ -338,6 +387,9 @@ export default function App() {
               .filter((c) => !project.tracks.find((t) => t.id === c.trackId)?.locked)
               .map((c) => c.id),
           );
+        } else if (key === 'g' && focused) {
+          e.preventDefault();
+          commit(groupClips(projectRef.current, selected, e.shiftKey));
         }
         return;
       }
@@ -362,6 +414,17 @@ export default function App() {
         seek(
           timeRef.current +
             frameTick(e.shiftKey ? 10 : 1, project.fps) * (key === 'arrowleft' ? -1 : 1),
+        );
+      } else if (key === 'i' || key === 'o') {
+        e.preventDefault();
+        commit(markRange(projectRef.current, timeRef.current, key === 'i' ? 'start' : 'end'));
+      } else if (focused && (key === 'arrowup' || key === 'arrowdown')) {
+        e.preventDefault();
+        seek(clipBoundary(projectRef.current, timeRef.current, key === 'arrowup' ? -1 : 1));
+      } else if (key === '[' || key === ']') {
+        e.preventDefault();
+        commit(
+          trimToHead(projectRef.current, selected, timeRef.current, key === '[' ? 'start' : 'end'),
         );
       } else if (key === 'delete' || key === 'backspace') {
         e.preventDefault();
@@ -415,12 +478,17 @@ export default function App() {
       return;
     }
     importBusy.current = true;
+    const abort = new AbortController();
+    importAbort.current = abort;
+    const wasEmpty = !projectRef.current.clips.length;
     setPlaying(false);
     try {
       for (const file of incoming) {
+        if (abort.signal.aborted) break;
         setImporting(`${file.name} 분석 중`);
         try {
-          const asset = await inspect(file);
+          const asset = await inspect(file, abort.signal);
+          if (abort.signal.aborted) break;
           const p = projectRef.current;
           const missing = p.assets.find(
             (a) =>
@@ -463,31 +531,11 @@ export default function App() {
               );
             }
           }
-          let next = projectRef.current;
-          const available = next.tracks.filter(
-            (t) => !t.locked && t.kind === (asset.kind === 'audio' ? 'audio' : 'visual'),
-          );
-          const track = asset.kind === 'image' ? available[0] : available.at(-1);
-          if (!track) {
-            const t = {
-              id: id(),
-              name: asset.kind === 'audio' ? '음악' : '영상',
-              kind: asset.kind === 'audio' ? ('audio' as const) : ('visual' as const),
-              locked: false,
-              hidden: false,
-              muted: false,
-            };
-            next = { ...next, tracks: [...next.tracks, t] };
-          }
-          const actual = track?.id ?? next.tracks.at(-1)!.id;
-          next = addAsset(
-            next,
-            asset,
-            asset.kind === 'video' ? undefined : timeRef.current,
-            actual,
-          );
+          const next = autoInsert
+            ? insertMedia(projectRef.current, asset, timeRef.current)
+            : { ...projectRef.current, assets: [...projectRef.current.assets, asset] };
           commit(next);
-          setActiveTrack(actual);
+          setAssetSelection((ids) => [...ids, asset.id]);
           if (asset.kind === 'image' && /\.gif$/i.test(file.name))
             notify('GIF는 첫 프레임을 정지 이미지로 가져옵니다.');
           if (asset.hasAudio)
@@ -507,12 +555,32 @@ export default function App() {
               })
               .catch(() => notify(`${asset.name}: 파형 생성에 실패했지만 편집은 유지됩니다.`));
         } catch (e) {
+          if (e instanceof DOMException && e.name === 'AbortError') {
+            notify('가져오기를 취소했습니다. 이미 가져온 파일과 편집은 유지됩니다.');
+            break;
+          }
+          setImportErrors((rows) => [
+            ...rows.slice(-19),
+            { file, message: e instanceof Error ? e.message : '파일을 가져오지 못했습니다.' },
+          ]);
           notify(`${file.name}: ${e instanceof Error ? e.message : '파일을 가져오지 못했습니다.'}`);
         }
       }
     } finally {
+      if (wasEmpty && projectRef.current.clips.length)
+        setZoom(
+          Math.max(
+            8,
+            Math.min(
+              200,
+              ((document.querySelector('.timeline-scroll')?.clientWidth ?? 1000) - 240) /
+                Math.max(6, seconds(duration(projectRef.current)) + 1),
+            ),
+          ),
+        );
       setImporting('');
       importBusy.current = false;
+      importAbort.current = null;
     }
   }
   function appendAsset(assetId: string, trackId?: string, start?: number) {
@@ -528,7 +596,7 @@ export default function App() {
       notify('영상·이미지는 시각 트랙, 음악은 오디오 트랙에 놓으세요.');
       return;
     }
-    const next = addAsset(p, a, start, trackId);
+    const next = insertMedia(p, a, start ?? timeRef.current, trackId);
     if (next === p) notify('트랙과 링크된 오디오의 잠금 상태를 확인하세요.');
     else commit(next);
   }
@@ -552,20 +620,9 @@ export default function App() {
   }
   function addText(preset: 'title' | 'subtitle' | 'caption') {
     let p = projectRef.current;
-    let track =
-      p.tracks.find((t) => t.id === activeTrack && t.kind === 'visual' && !t.locked) ||
-      p.tracks.find((t) => t.kind === 'visual' && !t.locked);
-    if (!track) {
-      track = {
-        id: id(),
-        name: '텍스트',
-        kind: 'visual',
-        locked: false,
-        hidden: false,
-        muted: false,
-      };
-      p = { ...p, tracks: [track, ...p.tracks] };
-    }
+    const layer = freeLayer(p, timeRef.current, tick(5), '텍스트');
+    p = layer.project;
+    const track = layer.track;
     const c: Clip = {
       id: id(),
       kind: 'text',
@@ -623,6 +680,110 @@ export default function App() {
       );
     } catch (e) {
       notify(e instanceof Error ? e.message : '프로젝트를 읽을 수 없습니다.');
+    }
+  }
+  async function activateProject(p: Project) {
+    await saveProject(projectRef.current);
+    for (const a of p.assets) {
+      const file = await loadFile(a.id);
+      if (file) files.set(a.id, file);
+    }
+    setPlaying(false);
+    history.current = new History();
+    const restored = validateProject(p);
+    projectRef.current = restored;
+    setProject(restored);
+    setDraft(undefined);
+    setRevision((v) => v + 1);
+    setSelected([]);
+    setTime(0);
+    setActiveTrack(p.tracks.find((t) => t.kind === 'visual')?.id ?? '');
+    if (p.assets.some((a) => !files.has(a.id))) notify('누락 원본을 다시 가져와 재연결하세요.');
+  }
+  async function copyProject(backup = false) {
+    const p = projectRef.current;
+    try {
+      await saveProject(p);
+      const copy = {
+        ...structuredClone(p),
+        id: id(),
+        name: `${p.name} ${backup ? '복구 지점 ' + new Date().toLocaleTimeString('ko-KR') : '복사본'}`,
+      };
+      await saveProject(copy);
+      if (!backup) await activateProject(copy);
+      else await saveProject(p);
+      notify(
+        backup
+          ? '복구 지점을 저장했습니다. 최근 프로젝트에서 열 수 있습니다.'
+          : '복사본을 열었습니다. 원본 파일은 중복 저장하지 않습니다.',
+      );
+    } catch (e) {
+      notify(e instanceof Error ? e.message : '저장 실패');
+    }
+  }
+  async function mediaTask(kind: 'capture' | 'audio-analysis') {
+    if (processing || !project.clips.length) return;
+    const p = structuredClone(projectRef.current),
+      at = timeRef.current;
+    const abort = new AbortController();
+    taskAbort.current = abort;
+    setPlaying(false);
+    setProcessing(kind === 'capture' ? '정지 프레임 저장 중' : '전체 믹스 음량 검사 중');
+    try {
+      const sources = p.assets
+        .filter((a) => files.has(a.id))
+        .map((a) => ({ id: a.id, file: files.get(a.id)! }));
+      if (p.clips.some((c) => c.assetId && !files.has(c.assetId)))
+        throw new Error('누락 원본을 먼저 재연결하세요.');
+      if (kind === 'capture') {
+        const blob = await request<Blob>(
+          'capture',
+          { project: p, time: at, sources },
+          abort.signal,
+        );
+        const file = new File(
+            [blob],
+            `정지 프레임 ${timecode(at, p.fps).replaceAll(':', '-')}.png`,
+            { type: 'image/png' },
+          ),
+          asset = await inspect(file, abort.signal);
+        if (projectRef.current.id !== p.id) return;
+        files.set(asset.id, file);
+        if (persistMedia) {
+          try {
+            await saveFile(asset.id, file);
+            asset.stored = true;
+          } catch {
+            notify('정지 프레임의 원본 저장에 실패했습니다. PNG를 별도 저장하세요.');
+          }
+        }
+        if (!abort.signal.aborted) {
+          commit(insertMedia(projectRef.current, asset, at));
+          download(blob, file.name);
+        }
+      } else {
+        const result = await request<{ peak: number; clippedSamples: number; rms: number }>(
+          'audio-analysis',
+          { project: p, sources },
+          abort.signal,
+        );
+        if (result.peak === 0) {
+          notify('출력에 들리는 오디오가 없습니다.');
+          return;
+        }
+        if (JSON.stringify(projectRef.current) === JSON.stringify(p)) {
+          const gain = Math.min(4, ((p.masterVolume ?? 1) * 0.95) / result.peak);
+          commit({ ...projectRef.current, masterVolume: gain });
+          notify(
+            `전체 믹스 피크 ${(20 * Math.log10(result.peak)).toFixed(1)} dBFS · 클리핑 샘플 ${result.clippedSamples}개. 전체 음량 ${Math.round(gain * 100)}%로 피크 정규화했습니다 (최대 400%).`,
+          );
+        } else notify('검사 중 편집이 바뀌어 정규화를 적용하지 않았습니다.');
+      }
+    } catch (e) {
+      notify(e instanceof Error ? e.message : '미디어 처리 실패');
+    } finally {
+      setProcessing('');
+      taskAbort.current = null;
     }
   }
   function resize(e: React.PointerEvent, part: 'left' | 'right' | 'timeline') {
@@ -716,6 +877,52 @@ export default function App() {
               <button
                 onClick={() => {
                   setProjectMenu(false);
+                  setRecentOpen(true);
+                }}
+              >
+                <FolderOpen size={15} />
+                최근 프로젝트 · 저장소
+              </button>
+              <button
+                onClick={() => {
+                  setProjectMenu(false);
+                  void copyProject();
+                }}
+              >
+                <FileJson size={15} />
+                프로젝트 복제
+              </button>
+              <button
+                onClick={() => {
+                  setProjectMenu(false);
+                  void copyProject(true);
+                }}
+              >
+                <RotateCcw size={15} />
+                복구 지점 저장
+              </button>
+              <button
+                disabled={!project.clips.length || !!processing}
+                onClick={() => {
+                  setProjectMenu(false);
+                  void mediaTask('audio-analysis');
+                }}
+              >
+                <Music size={15} />
+                전체 음량 검사 · 피크 정규화
+              </button>
+              <button
+                disabled={(project.masterVolume ?? 1) === 1}
+                onClick={() => {
+                  setProjectMenu(false);
+                  commit({ ...project, masterVolume: 1 });
+                }}
+              >
+                전체 음량 초기화
+              </button>
+              <button
+                onClick={() => {
+                  setProjectMenu(false);
                   setPlaying(false);
                   commit(emptyProject());
                   setSelected([]);
@@ -744,7 +951,9 @@ export default function App() {
                 onClick={() => {
                   setProjectMenu(false);
                   void forgetUnusedFiles(project.assets.map((a) => a.id))
-                    .then(() => notify('현재 프로젝트에 쓰지 않는 저장된 원본을 정리했습니다.'))
+                    .then(() =>
+                      notify('저장된 모든 프로젝트에서 참조하지 않는 원본만 정리했습니다.'),
+                    )
                     .catch(() => notify('저장된 원본을 정리할 수 없습니다.'));
                 }}
               >
@@ -819,6 +1028,7 @@ export default function App() {
               ['media', Film, '미디어'],
               ['text', Type, '텍스트'],
               ['transitions', Layers, '전환'],
+              ['captions', Type, '자막'],
             ].map(([key, Icon, label]) => {
               const I = Icon as typeof Film;
               return (
@@ -849,10 +1059,60 @@ export default function App() {
                   <Plus size={17} /> 미디어 가져오기 <span>⌘ / Ctrl + 선택</span>
                 </button>
                 <p className="library-caption">영상 · 이미지 · 음악을 한곳에</p>
+                <div className="output-support" role="status">
+                  <strong>이 기기의 출력 지원</strong>
+                  {startupCaps ? (
+                    <p>
+                      {startupCaps.mp4
+                        ? `MP4 가능${startupCaps.aacFallback ? ' · 로컬 AAC 대체 인코더' : ''}`
+                        : 'MP4 영상 인코더 미지원'}{' '}
+                      · {startupCaps.webm ? 'WebM 가능' : 'WebM 미지원'} · WAV
+                      {startupCaps.mp3 ? ' · MP3' : ''}
+                    </p>
+                  ) : (
+                    <p>{capsError || '실제 인코더 확인 중…'}</p>
+                  )}
+                  {startupCaps && !startupCaps.mp4 ? (
+                    <p>
+                      원본은 업로드하지 않습니다. WebM으로 완성하거나 H.264 인코딩을 지원하는
+                      Chrome/Edge 환경에서 같은 프로젝트를 여세요.
+                    </p>
+                  ) : null}
+                </div>
+                <label className="import-policy">
+                  <input
+                    type="checkbox"
+                    checked={autoInsert}
+                    onChange={(e) => setAutoInsert(e.target.checked)}
+                  />{' '}
+                  가져오면서 타임라인에 연속 배치
+                </label>
+                <p className="small-note">
+                  해제하면 보관함만 가져옵니다. 이미지·텍스트는 빈 레이어에 배치됩니다.
+                </p>
+                {assetSelection.length ? (
+                  <button
+                    className="secondary full"
+                    onClick={() => {
+                      let next = projectRef.current;
+                      for (const asset of next.assets.filter(
+                        (a) => assetSelection.includes(a.id) && files.has(a.id),
+                      ))
+                        next = insertMedia(next, asset, timeRef.current);
+                      commit(next);
+                      setAssetSelection([]);
+                    }}
+                  >
+                    선택한 미디어 추가 · 영상은 연속 배치
+                  </button>
+                ) : null}
                 {importing ? (
                   <div className="import-progress" role="status">
                     <LoaderCircle size={15} className="spin" />
                     {importing}
+                    <button className="text-tool" onClick={() => importAbort.current?.abort()}>
+                      가져오기 취소
+                    </button>
                   </div>
                 ) : null}
                 {missing.length ? (
@@ -867,6 +1127,27 @@ export default function App() {
                     </div>
                   </div>
                 ) : null}
+                {importErrors.length ? (
+                  <details className="import-errors">
+                    <summary>가져오기 오류 {importErrors.length}개 · 편집 유지됨</summary>
+                    {importErrors.map((row, i) => (
+                      <div key={i}>
+                        <strong>{row.file.name}</strong>
+                        <p>{row.message}</p>
+                        <button
+                          className="secondary"
+                          disabled={!!importing}
+                          onClick={() => void importFiles([row.file])}
+                        >
+                          다시 시도
+                        </button>
+                      </div>
+                    ))}
+                    <button className="text-tool" onClick={() => setImportErrors([])}>
+                      오류 목록 지우기
+                    </button>
+                  </details>
+                ) : null}
                 {project.assets.length ? (
                   <div className="asset-grid">
                     {project.assets.map((a) => (
@@ -880,6 +1161,19 @@ export default function App() {
                           e.dataTransfer.effectAllowed = 'copy';
                         }}
                       >
+                        <label className="asset-selection">
+                          <input
+                            type="checkbox"
+                            aria-label={`${a.name} 배치 선택`}
+                            checked={assetSelection.includes(a.id)}
+                            onChange={(e) =>
+                              setAssetSelection((ids) =>
+                                e.target.checked ? [...ids, a.id] : ids.filter((id) => id !== a.id),
+                              )
+                            }
+                          />
+                          배치 선택
+                        </label>
                         <div className="asset-preview">
                           {a.thumbnail ? (
                             <img src={a.thumbnail} alt={a.name} />
@@ -917,8 +1211,13 @@ export default function App() {
                         </div>
                         <strong title={a.name}>{a.name}</strong>
                         <span className="asset-details">
-                          {a.videoCodec || a.audioCodec || a.container} · {formatBytes(a.size)}
+                          {a.container} · {a.videoCodec || a.audioCodec} · {formatBytes(a.size)}
                         </span>
+                        <details className="asset-diagnostics">
+                          <summary>파일 정보</summary>
+                          {a.width} × {a.height} · {seconds(a.duration).toFixed(3)}초<br />
+                          영상: {a.videoCodec || '없음'} / 오디오: {a.audioCodec || '없음'}
+                        </details>
                         <span className="asset-storage">
                           {a.stored ? '원본 기기에 저장됨' : '원본 별도 보관 필요'}
                         </span>
@@ -934,7 +1233,7 @@ export default function App() {
                     <p>
                       첫 번째 파일을 가져오면
                       <br />
-                      편집이 바로 시작됩니다.
+                      보관함에서 원하는 미디어를 배치하세요.
                     </p>
                     <div className="format-tags">
                       <span>MP4</span>
@@ -989,6 +1288,15 @@ export default function App() {
                   변경하고 미리보기에서 위치를 드래그하세요. 입력은 포커스를 벗어나면 적용됩니다.
                 </p>
               </>
+            ) : tab === 'captions' ? (
+              <CaptionPanel
+                p={project}
+                selected={selected}
+                commit={commit}
+                select={setSelected}
+                seek={seek}
+                notify={notify}
+              />
             ) : (
               <>
                 <div className="library-heading">
@@ -1060,6 +1368,20 @@ export default function App() {
           onPointerDown={(e) => resize(e, 'left')}
         />
         <Preview
+          capture={() => void mediaTask('capture')}
+          processing={processing}
+          meter={<AudioMeter audio={audio.current} />}
+          playRange={() => {
+            if (project.workRange) {
+              void audio.current.resume().then(() => {
+                setTime(project.workRange!.start);
+                timeRef.current = project.workRange!.start;
+                setRate(1);
+                setPlayingRange(true);
+                setPlaying(true);
+              });
+            }
+          }}
           project={draft ?? project}
           time={time}
           playing={playing}
@@ -1171,8 +1493,25 @@ export default function App() {
             </div>
           }
         >
-          <ExportDialog project={project} onClose={() => setExportOpen(false)} />
+          <ExportDialog
+            project={project}
+            range={project.workRange}
+            onProjectChange={commit}
+            onClose={() => setExportOpen(false)}
+          />
         </Suspense>
+      ) : null}
+      {recentOpen ? (
+        <RecentProjects close={() => setRecentOpen(false)} open={activateProject} notify={notify} />
+      ) : null}
+      {processing ? (
+        <div className="processing-status" role="status">
+          <LoaderCircle size={16} className="spin" />
+          {processing}
+          <button className="secondary" onClick={() => taskAbort.current?.abort()}>
+            취소
+          </button>
+        </div>
       ) : null}
       {helpOpen ? (
         <div

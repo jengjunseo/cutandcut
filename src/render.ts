@@ -37,7 +37,7 @@ export class Renderer {
           active.add(c.id);
           let cursor = this.cursors.get(c.id);
           if (!cursor) {
-            cursor = new VideoCursor(r.video, w * 1.5, c.assetId);
+            cursor = new VideoCursor(r.video, Math.max(1, Math.round(w * 1.5)), c.assetId);
             this.pool.pin(c.assetId);
             this.cursors.set(c.id, cursor);
           }
@@ -48,8 +48,22 @@ export class Renderer {
         if (source) {
           const sw = (source as ImageBitmap | OffscreenCanvas).width,
             sh = (source as ImageBitmap | OffscreenCanvas).height;
-          const scale = c.fit === 'cover' ? Math.max(w / sw, h / sh) : Math.min(w / sw, h / sh);
-          ctx.drawImage(source, (-sw * scale) / 2, (-sh * scale) / 2, sw * scale, sh * scale);
+          const crop = c.crop ?? { left: 0, right: 0, top: 0, bottom: 0 },
+            cw = sw * (1 - crop.left - crop.right),
+            ch = sh * (1 - crop.top - crop.bottom);
+          const scale = c.fit === 'cover' ? Math.max(w / cw, h / ch) : Math.min(w / cw, h / ch);
+          ctx.scale(c.flipX ? -1 : 1, c.flipY ? -1 : 1);
+          ctx.drawImage(
+            source,
+            sw * crop.left,
+            sh * crop.top,
+            cw,
+            ch,
+            (-cw * scale) / 2,
+            (-ch * scale) / 2,
+            cw * scale,
+            ch * scale,
+          );
         }
       }
       ctx.restore();

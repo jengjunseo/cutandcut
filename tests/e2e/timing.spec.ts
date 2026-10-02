@@ -13,18 +13,17 @@ test('variable input PTS to fixed 24fps and keyboard focus', async ({ page }) =>
       .locator('.app')
       .evaluate((e) => (e as HTMLElement).style.getPropertyValue('--left-width')),
   ).toBe('290px');
-  await expect(page.locator('.current-time')).toHaveText('00:00:00:00');
+  await expect(page.locator('.current-time')).toHaveValue('00:00:00:00');
   const fixture = await page.evaluate(async () => {
     const url = '/tests/fixtures.browser.ts';
     return (await import(/* @vite-ignore */ url)).makeVfrFixture();
   });
-  await page
-    .getByLabel('미디어 파일 선택')
-    .setInputFiles({
-      name: fixture.name,
-      mimeType: fixture.mimeType,
-      buffer: Buffer.from(fixture.bytes),
-    });
+  await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
+  await page.getByLabel('미디어 파일 선택').setInputFiles({
+    name: fixture.name,
+    mimeType: fixture.mimeType,
+    buffer: Buffer.from(fixture.bytes),
+  });
   await expect(page.locator('.asset-card')).toHaveCount(1);
   await expect(page.locator('.import-progress')).toHaveCount(0);
   await page.getByRole('combobox', { name: '프레임레이트', exact: true }).selectOption('24');

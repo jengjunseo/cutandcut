@@ -15,16 +15,15 @@ test('JPEG, MP3, WebM inputs and genuine 1080p output', async ({ page }) => {
     const url = '/tests/fixtures.browser.ts';
     return (await import(/* @vite-ignore */ url)).makeCompatibilityFixtures();
   });
-  await page
-    .getByLabel('미디어 파일 선택')
-    .setInputFiles([
-      { name: 'photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpeg) },
-      ...converted.map((f: { name: string; mimeType: string; bytes: number[] }) => ({
-        name: f.name,
-        mimeType: f.mimeType,
-        buffer: Buffer.from(f.bytes),
-      })),
-    ]);
+  await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
+  await page.getByLabel('미디어 파일 선택').setInputFiles([
+    { name: 'photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpeg) },
+    ...converted.map((f: { name: string; mimeType: string; bytes: number[] }) => ({
+      name: f.name,
+      mimeType: f.mimeType,
+      buffer: Buffer.from(f.bytes),
+    })),
+  ]);
   await expect(page.locator('.asset-card')).toHaveCount(3);
   await expect(page.locator('.import-progress')).toHaveCount(0);
   await page.getByRole('button', { name: '16:9', exact: true }).click();

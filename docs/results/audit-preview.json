@@ -1,0 +1,44 @@
+{
+  "boxes": [
+    {
+      "ratio": "16:9",
+      "width": 755.546875,
+      "height": 425
+    },
+    {
+      "ratio": "9:16",
+      "width": 239.0625,
+      "height": 425
+    },
+    {
+      "ratio": "1:1",
+      "width": 425,
+      "height": 425
+    },
+    {
+      "ratio": "4:5",
+      "width": 340,
+      "height": 425
+    },
+    {
+      "ratio": "4:3",
+      "width": 566.65625,
+      "height": 425
+    },
+    {
+      "ratio": "9:16",
+      "width": 239.0625,
+      "height": 425
+    }
+  ],
+  "metadata": {
+    "width": 720,
+    "height": 1280
+  },
+  "player": {
+    "x": 411.421875,
+    "y": 364,
+    "width": 177.15625,
+    "height": 314.9375
+  }
+}

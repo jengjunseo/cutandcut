@@ -1,0 +1,102 @@
+{
+  "speed": {
+    "cancelled": "AbortError",
+    "sourceDuration": 2.005333,
+    "results": [
+      {
+        "speed": 0.5,
+        "preservePitch": true,
+        "length": 4.010666666666666,
+        "frequency": 440.08747280899655,
+        "rms": 0.08481049014255848,
+        "peak": 0.120697021484375,
+        "codec": "pcm-s16"
+      },
+      {
+        "speed": 0.75,
+        "preservePitch": true,
+        "length": 2.673791666666667,
+        "frequency": 439.79805939106296,
+        "rms": 0.08480479819055146,
+        "peak": 0.120697021484375,
+        "codec": "pcm-s16"
+      },
+      {
+        "speed": 1.5,
+        "preservePitch": true,
+        "length": 1.3368958333333334,
+        "frequency": 439.75006115051923,
+        "rms": 0.08483520011659708,
+        "peak": 0.12066650390625,
+        "codec": "pcm-s16"
+      },
+      {
+        "speed": 2,
+        "preservePitch": true,
+        "length": 1.0026875,
+        "frequency": 441.3564243492689,
+        "rms": 0.08480840610793786,
+        "peak": 0.120697021484375,
+        "codec": "pcm-s16"
+      },
+      {
+        "speed": 2,
+        "preservePitch": false,
+        "length": 1.0026875,
+        "frequency": 881.053614020533,
+        "rms": 0.08482976980017626,
+        "peak": 0.12066650390625,
+        "codec": "pcm-s16"
+      }
+    ],
+    "analysis": {
+      "peak": 1.448193907737732,
+      "clippedSamples": 97592,
+      "rms": 1.0138285467744266
+    },
+    "normalized": {
+      "length": 2.005333333333333,
+      "frequency": 440.40697674418607,
+      "rms": 0.6677784366809995,
+      "peak": 0.95001220703125,
+      "codec": "pcm-s16"
+    },
+    "image": {
+      "width": 1280,
+      "height": 720,
+      "color": [
+        197,
+        62,
+        49,
+        255
+      ],
+      "bytes": 24752
+    }
+  },
+  "range": {
+    "length": 2.005333333333333,
+    "pixels": [
+      [
+        197,
+        62,
+        49,
+        255
+      ],
+      [
+        36,
+        95,
+        191,
+        255
+      ]
+    ],
+    "width": 1280,
+    "height": 720,
+    "audio": {
+      "length": 2.005333333333333,
+      "frequency": 549.4186046511628,
+      "rms": 0.08439166138091365,
+      "peak": 0.12661628425121307,
+      "codec": "aac"
+    }
+  }
+}
