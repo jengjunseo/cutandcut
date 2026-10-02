@@ -1,0 +1,34 @@
+{
+  "url": "https://cutandcut.vercel.app",
+  "outputs": {
+    "mp4": {
+      "width": 1280,
+      "height": 720,
+      "duration": 6.016,
+      "videoCodec": "avc",
+      "audioCodec": "aac",
+      "hasAudioEnergy": true,
+      "bytes": 701735
+    },
+    "webm": {
+      "width": 1280,
+      "height": 720,
+      "duration": 6.02,
+      "videoCodec": "vp9",
+      "audioCodec": "opus",
+      "hasAudioEnergy": true,
+      "bytes": 454531
+    },
+    "wav": {
+      "audioCodec": "pcm-s16",
+      "hasAudioEnergy": true,
+      "bytes": 1152044
+    },
+    "mp3": {
+      "audioCodec": "mp3",
+      "hasAudioEnergy": true,
+      "bytes": 144744
+    }
+  },
+  "errors": []
+}

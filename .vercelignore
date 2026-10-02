@@ -1,0 +1,11 @@
+.git
+.npm-cache
+node_modules
+artifacts
+test-results
+playwright-report
+tests
+.env*
+*.tsbuildinfo
+
+dist

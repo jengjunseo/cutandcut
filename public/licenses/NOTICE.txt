@@ -1,0 +1,33 @@
+CyanCut third-party notices
+
+React / React DOM — Meta Platforms, Inc. and affiliates — MIT
+https://github.com/facebook/react
+
+Lucide — Lucide contributors — ISC
+https://github.com/lucide-icons/lucide
+
+Mediabunny 1.61.0 — Vanilagy and contributors — MPL-2.0
+@mediabunny/mp3-encoder 1.61.0 — Vanilagy and contributors — MPL-2.0
+Unmodified library source is distributed in these npm packages:
+https://www.npmjs.com/package/mediabunny/v/1.61.0
+https://www.npmjs.com/package/@mediabunny/mp3-encoder/v/1.61.0
+Source and build scripts: https://github.com/Vanilagy/mediabunny
+MPL license: /licenses/MPL-2.0.txt
+
+The MP3 extension includes the LAME MP3 encoder, licensed under LGPL-2.0-or-later.
+https://lame.sourceforge.io/
+Source releases: https://sourceforge.net/projects/lame/files/lame/
+License: /licenses/LGPL-2.0.txt
+This encoder is loaded as a separate module; CyanCut does not modify its source.
+
+Noto Sans KR — Google Inc. — SIL Open Font License 1.1
+https://github.com/notofonts/noto-cjk
+Font license: /licenses/OFL-Noto-Sans-KR.txt
+Self-hosted via @fontsource/noto-sans-kr. No font request sends media to a server.
+
+CyanCut makes no change to bundled third-party sources. Copyright and license
+notices remain with the libraries. Browser-native H.264/AAC/VP8/VP9/Opus
+encoders are provided by the user's browser/OS and checked at runtime.
+
+LAME 3.100 source archive is also distributed at /licenses/lame-3.100-source.tar.gz.
+Upstream source archive mirror: https://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz

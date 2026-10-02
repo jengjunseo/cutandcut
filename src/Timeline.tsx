@@ -1,0 +1,699 @@
+import { useRef, useState, useEffect, memo } from 'react';
+import {
+  MousePointer2,
+  Scissors,
+  Magnet,
+  Plus,
+  Minus,
+  Copy,
+  Trash2,
+  Layers,
+  LockKeyhole,
+  LockKeyholeOpen,
+  Eye,
+  EyeOff,
+  Volume2,
+  VolumeX,
+  ChevronUp,
+  ChevronDown,
+  Link2,
+  Type,
+  Music,
+  Film,
+  Image,
+  ZoomIn,
+} from 'lucide-react';
+import {
+  duration,
+  seconds,
+  tick,
+  timecode,
+  snapTime,
+  move,
+  trim,
+  linked,
+  type Project,
+  type Clip,
+} from './model';
+import { IconButton } from './ui';
+type Props = {
+  project: Project;
+  time: number;
+  selected: string[];
+  activeTrack: string;
+  setActiveTrack: (id: string) => void;
+  select: (ids: string[]) => void;
+  seek: (t: number) => void;
+  commit: (p: Project) => void;
+  draft: (p: Project | undefined) => void;
+  split: () => void;
+  remove: (ripple?: boolean) => void;
+  duplicate: () => void;
+  addTrack: (kind: 'audio' | 'visual') => void;
+  dropAsset: (assetId: string, trackId: string, start: number) => void;
+  snap: boolean;
+  setSnap: (s: boolean) => void;
+  tool: 'select' | 'split';
+  setTool: (s: 'select' | 'split') => void;
+  zoom: number;
+  setZoom: (v: number) => void;
+  notify: (s: string) => void;
+  onFocus: () => void;
+};
+export default memo(function Timeline({
+  project: p,
+  time,
+  selected,
+  activeTrack,
+  setActiveTrack,
+  select,
+  seek,
+  commit,
+  draft,
+  split: splitAction,
+  remove,
+  duplicate,
+  addTrack,
+  dropAsset,
+  snap,
+  setSnap,
+  tool,
+  setTool,
+  zoom,
+  setZoom,
+  notify,
+  onFocus,
+}: Props) {
+  const scroll = useRef<HTMLDivElement>(null),
+    dragging = useRef(false);
+  const [scrollLeft, setScrollLeft] = useState(0),
+    [viewport, setViewport] = useState(1200),
+    [ghost, setGhost] = useState<{
+      track: string;
+      start: number;
+      duration: number;
+      name: string;
+    } | null>(null),
+    [snapPoint, setSnapPoint] = useState<number | null>(null),
+    [trackMenu, setTrackMenu] = useState(false);
+  const timelineLength = Math.max(30, seconds(duration(p)) + 8);
+  const width = Math.max(viewport - 170, timelineLength * zoom);
+  const step = zoom >= 100 ? 1 : zoom >= 40 ? 2 : zoom >= 16 ? 5 : 10;
+  const ticks = Array.from({ length: Math.floor(width / zoom / step) + 1 }, (_, i) => i * step);
+  const icon = (c: Clip) =>
+    c.kind === 'text' ? (
+      <Type size={12} />
+    ) : c.kind === 'audio' ? (
+      <Music size={12} />
+    ) : c.kind === 'image' ? (
+      <Image size={12} />
+    ) : (
+      <Film size={12} />
+    );
+  const at = (clientX: number) =>
+    Math.max(
+      0,
+      tick(
+        (clientX -
+          scroll.current!.getBoundingClientRect().left +
+          scroll.current!.scrollLeft -
+          170) /
+          zoom,
+      ),
+    );
+  function dragClip(e: React.PointerEvent, c: Clip, edge?: 'start' | 'end') {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    onFocus();
+    setActiveTrack(c.trackId);
+    if (p.tracks.find((t) => t.id === c.trackId)?.locked) {
+      notify('잠긴 트랙은 편집할 수 없습니다.');
+      return;
+    }
+    let ids = selected.includes(c.id)
+      ? selected
+      : e.shiftKey || e.ctrlKey || e.metaKey
+        ? [...selected, c.id]
+        : [c.id];
+    if ((e.ctrlKey || e.metaKey) && selected.includes(c.id)) {
+      select(selected.filter((x) => x !== c.id));
+      return;
+    }
+    select(ids);
+    if (tool === 'split' && !edge) {
+      seek(at(e.clientX));
+      return;
+    }
+    const targets = linked(p, ids);
+    if (targets.some((x) => p.tracks.find((t) => t.id === x.trackId)?.locked)) {
+      notify('링크된 오디오 트랙도 잠금 해제하세요.');
+      return;
+    }
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const base = p,
+      startX = e.clientX,
+      startScroll = scroll.current!.scrollLeft;
+    let next = p,
+      moved = false,
+      clientX = e.clientX,
+      clientY = e.clientY,
+      animation = 0;
+    dragging.current = true;
+    const update = () => {
+      const total = clientX - startX + scroll.current!.scrollLeft - startScroll;
+      let delta = tick(total / zoom);
+      const origin = edge === 'end' ? c.start + c.duration : c.start;
+      let point = origin + delta;
+      if (snap) {
+        const excluded = targets.map((c) => c.id),
+          tolerance = tick(8 / zoom);
+        const snapped = snapTime(base, point, time, excluded, tolerance);
+        const snappedEnd = !edge
+          ? snapTime(base, point + c.duration, time, excluded, tolerance)
+          : point + c.duration;
+        const startDistance = Math.abs(snapped - point),
+          endDistance = Math.abs(snappedEnd - point - c.duration);
+        if (endDistance > 0 && (startDistance === 0 || endDistance < startDistance)) {
+          delta = snappedEnd - c.duration - origin;
+          setSnapPoint(snappedEnd);
+        } else if (snapped !== point) {
+          delta = snapped - origin;
+          setSnapPoint(snapped);
+        } else setSnapPoint(null);
+      }
+      const row = document
+        .elementFromPoint(Math.min(window.innerWidth - 2, Math.max(1, clientX)), clientY)
+        ?.closest<HTMLElement>('[data-track-id]');
+      const dest = row?.dataset.trackId;
+      const chosen = base.clips.filter((c) => ids.includes(c.id));
+      const canReassign =
+        chosen.every((c) => c.trackId === chosen[0].trackId) && dest !== chosen[0].trackId;
+      next = edge
+        ? trim(base, ids, edge, delta)
+        : move(base, ids, delta, canReassign ? dest : undefined);
+      draft(next);
+    };
+    const loop = () => {
+      const s = scroll.current!;
+      const rect = s.getBoundingClientRect();
+      if (clientX > rect.right - 45) s.scrollLeft += Math.min(22, (clientX - rect.right + 45) / 2);
+      else if (clientX < rect.left + 210)
+        s.scrollLeft -= Math.min(22, (rect.left + 210 - clientX) / 2);
+      if (moved) update();
+      animation = requestAnimationFrame(loop);
+    };
+    animation = requestAnimationFrame(loop);
+    const onMove = (event: PointerEvent) => {
+      clientX = event.clientX;
+      clientY = event.clientY;
+      if (Math.abs(clientX - startX) > 3) moved = true;
+    };
+    const cleanup = () => {
+      cancelAnimationFrame(animation);
+      target.removeEventListener('pointermove', onMove);
+      target.removeEventListener('pointerup', onEnd);
+      target.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', escape);
+      dragging.current = false;
+      draft(undefined);
+      setSnapPoint(null);
+    };
+    const onEnd = () => {
+      cleanup();
+      if (moved) commit(next);
+    };
+    const onCancel = () => cleanup();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') cleanup();
+    };
+    target.addEventListener('pointermove', onMove);
+    target.addEventListener('pointerup', onEnd, { once: true });
+    target.addEventListener('pointercancel', onCancel, { once: true });
+    window.addEventListener('keydown', escape);
+  }
+  function rulerDrag(e: React.PointerEvent) {
+    if (e.button !== 0) return;
+    onFocus();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const change = (event: PointerEvent) => seek(Math.min(duration(p), at(event.clientX)));
+    change(e.nativeEvent);
+    const end = () => {
+      el.removeEventListener('pointermove', change);
+      el.removeEventListener('pointerup', end);
+      el.removeEventListener('pointercancel', end);
+    };
+    el.addEventListener('pointermove', change);
+    el.addEventListener('pointerup', end, { once: true });
+    el.addEventListener('pointercancel', end, { once: true });
+  }
+  function patchTrack(trackId: string, value: Record<string, unknown>) {
+    commit({ ...p, tracks: p.tracks.map((t) => (t.id === trackId ? { ...t, ...value } : t)) });
+  }
+  function reorderTrack(index: number, delta: number) {
+    const tracks = [...p.tracks];
+    const dest = index + delta;
+    if (dest < 0 || dest >= tracks.length) return;
+    [tracks[index], tracks[dest]] = [tracks[dest], tracks[index]];
+    commit({ ...p, tracks });
+  }
+  function trackDelete(trackId: string) {
+    const t = p.tracks.find((t) => t.id === trackId)!;
+    if (t.locked) {
+      notify('트랙을 잠금 해제한 뒤 삭제하세요.');
+      return;
+    }
+    const clips = p.clips.filter((c) => c.trackId === trackId);
+    const groups = new Set(clips.map((c) => c.linkId).filter(Boolean));
+    if (
+      p.clips.some(
+        (c) =>
+          c.linkId &&
+          groups.has(c.linkId) &&
+          c.trackId !== trackId &&
+          p.tracks.find((t) => t.id === c.trackId)?.locked,
+      )
+    ) {
+      notify('링크된 트랙의 잠금을 먼저 해제하세요.');
+      return;
+    }
+    commit({
+      ...p,
+      tracks: p.tracks.filter((t) => t.id !== trackId),
+      clips: p.clips
+        .filter((c) => c.trackId !== trackId)
+        .map((c) => (c.linkId && groups.has(c.linkId) ? { ...c, linkId: undefined } : c)),
+    });
+  }
+  function over(e: React.DragEvent, trackId: string) {
+    if (
+      !e.dataTransfer.types.includes('application/cyancut-asset') &&
+      !e.dataTransfer.types.includes('application/cyancut-transition')
+    )
+      return;
+    e.preventDefault();
+    const assetId = e.dataTransfer.types
+        .find((s) => s.startsWith('application/cyancut-asset-id-'))
+        ?.slice('application/cyancut-asset-id-'.length),
+      asset = p.assets.find((a) => a.id === assetId);
+    const name =
+      asset?.name ??
+      (e.dataTransfer.types.includes('application/cyancut-transition') ? '트랜지션' : '미디어');
+    let t = at(e.clientX);
+    if (snap) t = snapTime(p, t, time, [], tick(8 / zoom));
+    setGhost({ track: trackId, start: t, duration: asset?.duration ?? tick(5), name });
+  }
+  function blankClick(e: React.MouseEvent, trackId: string) {
+    if (e.target !== e.currentTarget) return;
+    setActiveTrack(trackId);
+    if (!e.shiftKey) select([]);
+    seek(Math.min(duration(p), at(e.clientX)));
+  }
+  return (
+    <section className="timeline-panel" tabIndex={0} aria-label="편집 타임라인" onFocus={onFocus}>
+      <div className="timeline-toolbar">
+        <div className="tool-group">
+          <IconButton
+            label="선택 도구 (V)"
+            active={tool === 'select'}
+            onClick={() => setTool('select')}
+          >
+            <MousePointer2 size={16} />
+          </IconButton>
+          <IconButton
+            label="분할 도구 (B) · 클립 클릭 후 분할 버튼"
+            active={tool === 'split'}
+            onClick={() => setTool('split')}
+          >
+            <Scissors size={16} />
+          </IconButton>
+          <span className="toolbar-divider" />
+          <button className="text-tool" disabled={!selected.length} onClick={splitAction}>
+            <Scissors size={14} /> 분할
+          </button>
+          <IconButton label="복제 (Ctrl/Cmd+D)" disabled={!selected.length} onClick={duplicate}>
+            <Copy size={15} />
+          </IconButton>
+          <IconButton
+            label="삭제 · 빈 공간 유지 (Delete)"
+            disabled={!selected.length}
+            onClick={() => remove()}
+          >
+            <Trash2 size={15} />
+          </IconButton>
+          <button
+            className="text-tool ripple-tool"
+            disabled={!selected.length}
+            onClick={() => remove(true)}
+          >
+            리플 삭제
+          </button>
+          <span className="toolbar-divider" />
+          <IconButton label="스냅 (S)" active={snap} onClick={() => setSnap(!snap)}>
+            <Magnet size={16} />
+          </IconButton>
+        </div>
+        <div className="timeline-right">
+          <div className="track-menu-wrap">
+            <button className="text-tool" onClick={() => setTrackMenu(!trackMenu)}>
+              <Plus size={14} /> 트랙
+            </button>
+            {trackMenu ? (
+              <div className="small-menu">
+                <button
+                  onClick={() => {
+                    addTrack('visual');
+                    setTrackMenu(false);
+                  }}
+                >
+                  <Layers size={14} /> 영상 · 이미지 · 텍스트
+                </button>
+                <button
+                  onClick={() => {
+                    addTrack('audio');
+                    setTrackMenu(false);
+                  }}
+                >
+                  <Music size={14} /> 오디오
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <span className="toolbar-divider" />
+          <IconButton label="타임라인 축소 (-)" onClick={() => setZoom(Math.max(8, zoom / 1.3))}>
+            <Minus size={15} />
+          </IconButton>
+          <input
+            className="zoom-range"
+            aria-label="타임라인 확대"
+            type="range"
+            min={8}
+            max={200}
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+          />
+          <IconButton label="타임라인 확대 (+)" onClick={() => setZoom(Math.min(200, zoom * 1.3))}>
+            <Plus size={15} />
+          </IconButton>
+          <IconButton
+            label="전체 타임라인 보기"
+            onClick={() =>
+              setZoom(Math.max(8, (viewport - 240) / Math.max(10, seconds(duration(p)) + 2)))
+            }
+          >
+            <ZoomIn size={15} />
+          </IconButton>
+        </div>
+      </div>
+      <div
+        className="timeline-scroll"
+        ref={scroll}
+        onScroll={(e) => {
+          setScrollLeft(e.currentTarget.scrollLeft);
+          setViewport(e.currentTarget.clientWidth);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setGhost(null);
+        }}
+      >
+        <div className="timeline-content" style={{ width: width + 170 }}>
+          <div className="ruler-row">
+            <div className="track-ruler-label">
+              트랙 <span>위쪽 레이어 우선</span>
+            </div>
+            <div className="ruler" style={{ width }} onPointerDown={rulerDrag}>
+              {ticks
+                .filter(
+                  (t) => t * zoom >= scrollLeft - 100 && t * zoom < scrollLeft + viewport + 100,
+                )
+                .map((t) => (
+                  <div className="ruler-tick" key={t} style={{ left: t * zoom }}>
+                    <span>
+                      {Math.floor(t / 60)}:{String(t % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+          {p.tracks.map((track, index) => (
+            <div
+              className={`track-row ${activeTrack === track.id ? 'track-active' : ''} ${track.locked ? 'track-locked' : ''}`}
+              key={track.id}
+              data-track-id={track.id}
+            >
+              <div className="track-header" onClick={() => setActiveTrack(track.id)}>
+                <div className="track-title">
+                  <span className={`track-symbol ${track.kind}`}>
+                    {track.kind === 'audio' ? <Music size={13} /> : <Layers size={13} />}
+                  </span>
+                  <TrackName
+                    name={track.name}
+                    onCommit={(name) => patchTrack(track.id, { name })}
+                  />
+                  <span className="track-number">{index + 1}</span>
+                </div>
+                <div className="track-controls">
+                  <IconButton
+                    label={`${track.name} ${track.locked ? '잠금 해제' : '잠금'}`}
+                    active={track.locked}
+                    onClick={() => patchTrack(track.id, { locked: !track.locked })}
+                  >
+                    {track.locked ? <LockKeyhole size={12} /> : <LockKeyholeOpen size={12} />}
+                  </IconButton>
+                  {track.kind === 'audio' ? (
+                    <IconButton
+                      label={`${track.name} ${track.muted ? '음소거 해제' : '음소거'}`}
+                      active={track.muted}
+                      onClick={() => patchTrack(track.id, { muted: !track.muted })}
+                    >
+                      {track.muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                    </IconButton>
+                  ) : (
+                    <IconButton
+                      label={`${track.name} ${track.hidden ? '표시' : '숨기기'}`}
+                      active={track.hidden}
+                      onClick={() => patchTrack(track.id, { hidden: !track.hidden })}
+                    >
+                      {track.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </IconButton>
+                  )}
+                  <IconButton
+                    label={`${track.name} 위로`}
+                    disabled={index === 0}
+                    onClick={() => reorderTrack(index, -1)}
+                  >
+                    <ChevronUp size={12} />
+                  </IconButton>
+                  <IconButton
+                    label={`${track.name} 아래로`}
+                    disabled={index === p.tracks.length - 1}
+                    onClick={() => reorderTrack(index, 1)}
+                  >
+                    <ChevronDown size={12} />
+                  </IconButton>
+                  <IconButton
+                    label={`${track.name} 트랙 삭제`}
+                    onClick={() => trackDelete(track.id)}
+                  >
+                    <Trash2 size={12} />
+                  </IconButton>
+                </div>
+              </div>
+              <div
+                className="track-lane"
+                style={{ width }}
+                onClick={(e) => blankClick(e, track.id)}
+                onDragOver={(e) => over(e, track.id)}
+                onDrop={(e) => {
+                  const asset = e.dataTransfer.getData('application/cyancut-asset');
+                  if (asset) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    let t = at(e.clientX);
+                    if (snap) t = snapTime(p, t, time, [], tick(8 / zoom));
+                    dropAsset(asset, track.id, t);
+                  }
+                  setGhost(null);
+                }}
+              >
+                {p.clips
+                  .filter(
+                    (c) =>
+                      c.trackId === track.id &&
+                      seconds(c.start + c.duration) * zoom > scrollLeft - 200 &&
+                      seconds(c.start) * zoom < scrollLeft + viewport + 200,
+                  )
+                  .map((c) => {
+                    const asset = p.assets.find((a) => a.id === c.assetId);
+                    return (
+                      <div
+                        key={c.id}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`${c.name} 클립 · 시작 ${seconds(c.start).toFixed(2)}초 · 길이 ${seconds(c.duration).toFixed(2)}초`}
+                        aria-pressed={selected.includes(c.id)}
+                        className={`timeline-clip ${c.kind} ${selected.includes(c.id) ? 'clip-selected' : ''} ${track.hidden || track.muted ? 'clip-muted' : ''}`}
+                        style={{
+                          left: seconds(c.start) * zoom,
+                          width: Math.max(4, seconds(c.duration) * zoom),
+                        }}
+                        onPointerDown={(e) => dragClip(e, c)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (tool === 'split') splitAction();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            select([c.id]);
+                            setActiveTrack(c.trackId);
+                          }
+                        }}
+                        onDragOver={(e) => {
+                          if (e.dataTransfer.types.includes('application/cyancut-transition')) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }
+                        }}
+                        onDrop={(e) => {
+                          const transition = e.dataTransfer.getData(
+                            'application/cyancut-transition',
+                          );
+                          if (transition) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            select([c.id]);
+                            window.dispatchEvent(
+                              new CustomEvent('cyancut-transition', {
+                                detail: { clipId: c.id, kind: transition },
+                              }),
+                            );
+                          }
+                        }}
+                      >
+                        <div className="clip-title">
+                          {icon(c)}
+                          <span>{c.kind === 'text' ? c.text?.text : c.name}</span>
+                          {c.linkId ? <Link2 size={11} /> : null}
+                        </div>
+                        {c.kind === 'video' || c.kind === 'image' ? (
+                          <div
+                            className="clip-thumbnails"
+                            style={
+                              asset?.thumbnail
+                                ? { backgroundImage: `url(${asset.thumbnail})` }
+                                : undefined
+                            }
+                          />
+                        ) : c.kind === 'audio' ? (
+                          <svg
+                            className="clip-waveform"
+                            viewBox="0 0 120 30"
+                            preserveAspectRatio="none"
+                            aria-label={asset?.waveform ? '오디오 파형' : '오디오 파형 분석 중'}
+                          >
+                            {asset?.waveform?.map((v, i) => (
+                              <line
+                                key={i}
+                                x1={i}
+                                x2={i}
+                                y1={15 - Math.max(1, v * 14)}
+                                y2={15 + Math.max(1, v * 14)}
+                                stroke="currentColor"
+                                strokeWidth=".7"
+                              />
+                            ))}
+                          </svg>
+                        ) : (
+                          <span className="clip-text-preview">{c.text?.text}</span>
+                        )}
+                        {c.transition ? (
+                          <span
+                            className="transition-marker"
+                            title={`${c.transition.kind} ${seconds(c.transition.duration)}초`}
+                            style={{ width: Math.min(32, seconds(c.transition.duration) * zoom) }}
+                          />
+                        ) : null}
+                        {!track.locked ? (
+                          <>
+                            <span
+                              className="trim-handle trim-start"
+                              role="separator"
+                              aria-label="클립 시작 트리밍 · 속성 패널에서도 조절 가능"
+                              onPointerDown={(e) => dragClip(e, c, 'start')}
+                            />
+                            <span
+                              className="trim-handle trim-end"
+                              role="separator"
+                              aria-label="클립 끝 트리밍 · 속성 패널에서도 조절 가능"
+                              onPointerDown={(e) => dragClip(e, c, 'end')}
+                            />
+                          </>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                {ghost?.track === track.id ? (
+                  <div
+                    className="drop-ghost"
+                    style={{
+                      left: seconds(ghost.start) * zoom,
+                      width: seconds(ghost.duration) * zoom,
+                    }}
+                  >
+                    {ghost.name} · 드롭 후 원본 길이 적용
+                  </div>
+                ) : null}
+                {!p.clips.length && index === 1 ? (
+                  <span className="empty-track-hint">
+                    미디어를 이곳에 끌어놓거나 보관함에서 + 버튼을 누르세요
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ))}
+          <div
+            className="playhead"
+            style={{ left: 170 + seconds(time) * zoom, height: 38 + p.tracks.length * 70 }}
+            onPointerDown={rulerDrag}
+          >
+            <span className="playhead-head" />
+            <div className="playhead-line" />
+          </div>
+          {snapPoint !== null ? (
+            <div className="snap-guide" style={{ left: 170 + seconds(snapPoint) * zoom }} />
+          ) : null}
+        </div>
+      </div>
+      <div className="timeline-status">
+        <span>
+          <span className="status-dot" />{' '}
+          {p.clips.filter((c) => c.kind !== 'audio' || !c.linkId).length}개 클립{' '}
+          <span className="dot-separator" />{' '}
+          {selected.length ? `${selected.length}개 선택됨` : '클립을 선택해 편집하세요'}
+        </span>
+        <span className="timecode">
+          {timecode(duration(p), p.fps)} <span className="status-fps">· {p.fps} FPS</span>
+        </span>
+      </div>
+    </section>
+  );
+});
+
+function TrackName({ name, onCommit }: { name: string; onCommit: (s: string) => void }) {
+  const [value, setValue] = useState(name);
+  useEffect(() => setValue(name), [name]);
+  return (
+    <input
+      aria-label={name + ' 이름'}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        if (value !== name) onCommit(value || name);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur();
+      }}
+    />
+  );
+}
