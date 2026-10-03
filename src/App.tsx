@@ -24,6 +24,8 @@ import {
   X,
   PanelLeft,
   Trash2,
+  TriangleAlert,
+  Clock3,
 } from 'lucide-react';
 import {
   emptyProject,
@@ -66,7 +68,7 @@ import Inspector from './Inspector';
 import CaptionPanel from './CaptionPanel';
 import AudioMeter from './AudioMeter';
 import RecentProjects from './RecentProjects';
-import { Field, IconButton, formatBytes } from './ui';
+import { Field, IconButton, formatBytes, usePopup, shortFilename } from './ui';
 const ExportDialog = lazy(() => import('./ExportDialog'));
 const shortcuts = [
   ['Space', '재생 / 일시정지'],
@@ -364,7 +366,7 @@ export default function App() {
       if (
         e.defaultPrevented ||
         e.isComposing ||
-        target?.closest('input,textarea,select,[contenteditable="true"]') ||
+        target?.closest('input,textarea,select,[contenteditable="true"],.small-menu') ||
         exportOpen ||
         helpOpen ||
         recentOpen ||
@@ -485,7 +487,10 @@ export default function App() {
     if (!helpOpen) return;
     const previous = document.activeElement as HTMLElement;
     document.querySelector<HTMLElement>('.help-dialog')?.focus();
-    return () => previous?.focus();
+    return () => {
+      if (previous?.isConnected && previous !== document.body) previous.focus();
+      else projectPopup.current?.querySelector<HTMLButtonElement>(':scope > button')?.focus();
+    };
   }, [helpOpen]);
   useEffect(() => {
     const handle = (e: Event) => {
@@ -590,7 +595,7 @@ export default function App() {
               })
               .catch(() => {
                 if (!projectSignal.aborted && projectRef.current.id === projectId)
-                  notify(`${asset.name}: 파형 생성에 실패했지만 편집은 유지됩니다.`);
+                  notify(`${shortFilename(asset.name)}: 파형 생성에 실패했지만 편집은 유지됩니다.`);
               });
         } catch (e) {
           if (e instanceof DOMException && e.name === 'AbortError') {
@@ -601,7 +606,9 @@ export default function App() {
             ...rows.slice(-19),
             { file, message: e instanceof Error ? e.message : '파일을 가져오지 못했습니다.' },
           ]);
-          notify(`${file.name}: ${e instanceof Error ? e.message : '파일을 가져오지 못했습니다.'}`);
+          notify(
+            `${shortFilename(file.name)}: ${e instanceof Error ? e.message : '파일을 가져오지 못했습니다.'}`,
+          );
         }
       }
     } finally {
@@ -892,6 +899,17 @@ export default function App() {
     }));
   }
   const missing = project.assets.filter((a) => !files.has(a.id));
+  const projectPopup = usePopup(projectMenu, setProjectMenu);
+  const selectedMedia = project.assets.filter(
+    (a) => assetSelection.includes(a.id) && files.has(a.id),
+  );
+  function insertSelectedMedia() {
+    let next = projectRef.current;
+    for (const asset of next.assets.filter((a) => assetSelection.includes(a.id) && files.has(a.id)))
+      next = insertMedia(next, asset, timeRef.current);
+    commit(next);
+    setAssetSelection([]);
+  }
   return (
     <div
       className={`app mobile-${mobileTab}`}
@@ -929,16 +947,21 @@ export default function App() {
           </span>
         </a>
         <span className="header-divider" />
-        <div className="project-title">
+        <div className="project-title" ref={projectPopup}>
           <ProjectName
             name={project.name}
             onChange={(name) => commit({ ...project, name: name || '이름 없는 프로젝트' })}
           />
-          <IconButton label="프로젝트 메뉴" onClick={() => setProjectMenu(!projectMenu)}>
+          <IconButton
+            label="프로젝트 메뉴"
+            aria-expanded={projectMenu}
+            aria-controls="project-menu"
+            onClick={() => setProjectMenu(!projectMenu)}
+          >
             <ChevronDown size={14} />
           </IconButton>
           {projectMenu ? (
-            <div className="project-menu small-menu">
+            <div className="project-menu small-menu" id="project-menu">
               <button
                 onClick={() => {
                   setProjectMenu(false);
@@ -1012,6 +1035,14 @@ export default function App() {
               <button
                 onClick={() => {
                   setProjectMenu(false);
+                  setHelpOpen(true);
+                }}
+              >
+                <Keyboard size={15} /> 단축키 도움말
+              </button>
+              <button
+                onClick={() => {
+                  setProjectMenu(false);
                   void forgetUnusedFiles(project.assets.map((a) => a.id))
                     .then(() =>
                       notify('저장된 모든 프로젝트에서 참조하지 않는 원본만 정리했습니다.'),
@@ -1024,11 +1055,19 @@ export default function App() {
             </div>
           ) : null}
         </div>
-        <div className={`save-state ${saveStatus.includes('실패') ? 'save-failed' : ''}`}>
+        <div
+          className={`save-state ${saveStatus.includes('실패') ? 'save-failed' : ''}`}
+          role="status"
+          title={saveStatus}
+        >
           {saveStatus.includes('중') ? (
             <LoaderCircle size={13} className="spin" />
-          ) : (
+          ) : saveStatus.includes('실패') ? (
+            <TriangleAlert size={13} />
+          ) : saveStatus === '기기에 자동 저장됨' ? (
             <Check size={13} />
+          ) : (
+            <Clock3 size={13} />
           )}
           <span>{saveStatus}</span>
         </div>
@@ -1048,7 +1087,11 @@ export default function App() {
             <Redo2 size={18} />
           </IconButton>
           <span className="header-divider" />
-          <IconButton label="단축키 도움말 (?)" onClick={() => setHelpOpen(true)}>
+          <IconButton
+            label="단축키 도움말 (?)"
+            className="shortcut-help"
+            onClick={() => setHelpOpen(true)}
+          >
             <Keyboard size={18} />
           </IconButton>
           <button
@@ -1066,18 +1109,21 @@ export default function App() {
       <div className="mobile-navigation">
         <button
           className={mobileTab === 'media' ? 'selected' : ''}
+          aria-pressed={mobileTab === 'media'}
           onClick={() => setMobileTab('media')}
         >
           미디어
         </button>
         <button
           className={mobileTab === 'preview' ? 'selected' : ''}
+          aria-pressed={mobileTab === 'preview'}
           onClick={() => setMobileTab('preview')}
         >
           미리보기
         </button>
         <button
           className={mobileTab === 'inspector' ? 'selected' : ''}
+          aria-pressed={mobileTab === 'inspector'}
           onClick={() => setMobileTab('inspector')}
         >
           속성
@@ -1120,7 +1166,18 @@ export default function App() {
                 >
                   <Plus size={17} /> 미디어 가져오기 <span>⌘ / Ctrl + 선택</span>
                 </button>
-                <p className="library-caption">영상 · 이미지 · 음악을 한곳에</p>
+                {assetSelection.length ? (
+                  <button
+                    className="primary full insert-selection"
+                    disabled={!selectedMedia.length}
+                    onClick={insertSelectedMedia}
+                  >
+                    선택한 미디어 추가 · 영상은 연속 배치
+                  </button>
+                ) : null}
+                <p className="library-caption">
+                  가져온 파일은 + 또는 배치 선택으로 타임라인에 추가합니다.
+                </p>
                 <div className="output-support" role="status">
                   <strong>이 기기의 출력 지원</strong>
                   {startupCaps ? (
@@ -1160,22 +1217,6 @@ export default function App() {
                 <p className="small-note">
                   해제하면 보관함만 가져옵니다. 이미지·텍스트는 빈 레이어에 배치됩니다.
                 </p>
-                {assetSelection.length ? (
-                  <button
-                    className="secondary full"
-                    onClick={() => {
-                      let next = projectRef.current;
-                      for (const asset of next.assets.filter(
-                        (a) => assetSelection.includes(a.id) && files.has(a.id),
-                      ))
-                        next = insertMedia(next, asset, timeRef.current);
-                      commit(next);
-                      setAssetSelection([]);
-                    }}
-                  >
-                    선택한 미디어 추가 · 영상은 연속 배치
-                  </button>
-                ) : null}
                 {importing ? (
                   <div className="import-progress" role="status">
                     <LoaderCircle size={15} className="spin" />
@@ -1198,11 +1239,11 @@ export default function App() {
                   </div>
                 ) : null}
                 {importErrors.length ? (
-                  <details className="import-errors">
+                  <details className="import-errors" open>
                     <summary>가져오기 오류 {importErrors.length}개 · 편집 유지됨</summary>
                     {importErrors.map((row, i) => (
-                      <div key={i}>
-                        <strong>{row.file.name}</strong>
+                      <div className="import-error-row" key={i}>
+                        <strong title={row.file.name}>{row.file.name}</strong>
                         <p>{row.message}</p>
                         <button
                           className="secondary"
@@ -1280,7 +1321,10 @@ export default function App() {
                           </button>
                         </div>
                         <strong title={a.name}>{a.name}</strong>
-                        <span className="asset-details">
+                        <span
+                          className="asset-details"
+                          title={`${a.container} · ${a.videoCodec || a.audioCodec} · ${formatBytes(a.size)}`}
+                        >
                           {a.container} · {a.videoCodec || a.audioCodec} · {formatBytes(a.size)}
                         </span>
                         <details className="asset-diagnostics">
@@ -1438,6 +1482,20 @@ export default function App() {
           onPointerDown={(e) => resize(e, 'left')}
         />
         <Preview
+          mediaActionLabel={selectedMedia.length ? '선택한 미디어 추가' : '보관함에서 배치하기'}
+          mediaAction={
+            selectedMedia.length
+              ? insertSelectedMedia
+              : () => {
+                  setTab('media');
+                  setMobileTab('media');
+                  requestAnimationFrame(() =>
+                    document
+                      .querySelector('.asset-grid')
+                      ?.scrollIntoView({ block: 'start', inline: 'nearest' }),
+                  );
+                }
+          }
           capture={() => void mediaTask('capture')}
           processing={processing}
           meter={<AudioMeter audio={audio.current} />}
@@ -1559,7 +1617,10 @@ export default function App() {
         <Suspense
           fallback={
             <div className="modal-backdrop">
-              <LoaderCircle className="spin" />
+              <div className="help-dialog loading-dialog" role="status">
+                <LoaderCircle className="spin" size={20} />
+                <span>내보내기 화면을 여는 중…</span>
+              </div>
             </div>
           }
         >
@@ -1572,19 +1633,26 @@ export default function App() {
       ) : null}
       {switching || !ready ? (
         <div className="modal-backdrop" role="status" aria-live="polite">
-          <div className="help-dialog">
+          <div className="help-dialog loading-dialog">
             <LoaderCircle className="spin" />{' '}
             {ready ? '현재 작업 저장 · 프로젝트 전환 중' : '최근 프로젝트 복구 중'}
           </div>
         </div>
       ) : null}
       {recentOpen ? (
-        <RecentProjects close={() => setRecentOpen(false)} open={activateProject} notify={notify} />
+        <RecentProjects
+          close={() => {
+            setRecentOpen(false);
+            projectPopup.current?.querySelector<HTMLButtonElement>(':scope > button')?.focus();
+          }}
+          open={activateProject}
+          notify={notify}
+        />
       ) : null}
       {processing ? (
         <div className="processing-status" role="status">
           <LoaderCircle size={16} className="spin" />
-          {processing}
+          <span>{processing}</span>
           <button className="secondary" onClick={() => taskAbort.current?.abort()}>
             취소
           </button>

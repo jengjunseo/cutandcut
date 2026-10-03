@@ -15,6 +15,8 @@ type Props = {
   seek: (t: number) => void;
   toggle: () => void;
   importFiles: () => void;
+  mediaAction: () => void;
+  mediaActionLabel: string;
   update: (p: Project) => void;
   notify: (s: string) => void;
   playRange: () => void;
@@ -31,6 +33,8 @@ export default function Preview({
   seek,
   toggle,
   importFiles,
+  mediaAction,
+  mediaActionLabel,
   update,
   notify,
   playRange,
@@ -324,32 +328,33 @@ export default function Preview({
               ) : null}
             </>
           ) : (
-            <div
+            <button
+              type="button"
               className="start-canvas"
-              onClick={importFiles}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') importFiles();
-              }}
+              onClick={p.assets.length ? mediaAction : importFiles}
+              aria-label={p.assets.length ? mediaActionLabel : '파일 선택'}
+              aria-describedby="start-guide"
             >
-              <div className="start-mark">
+              <span className="start-mark" aria-hidden="true">
                 <Film size={30} strokeWidth={1.4} />
                 <span className="tiny-plus">+</span>
-              </div>
-              <h1>이야기의 시작, 첫 번째 클립</h1>
-              <p>영상, 이미지, 음악을 여기에 끌어놓으세요.</p>
-              <button
-                className="primary"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  importFiles();
-                }}
-              >
-                <Upload size={16} /> 파일 선택
-              </button>
+              </span>
+              <strong className="start-title">
+                {p.assets.length
+                  ? '보관함의 미디어로 편집을 시작하세요.'
+                  : '이야기의 시작, 첫 번째 클립'}
+              </strong>
+              <span className="start-copy" id="start-guide">
+                {p.assets.length
+                  ? '아직 타임라인에 클립이 없습니다. 선택한 파일을 배치하거나 보관함의 + 버튼을 누르세요.'
+                  : '영상, 이미지, 음악을 여기에 끌어놓으세요.'}
+              </span>
+              <span className="primary">
+                {p.assets.length ? <Film size={16} /> : <Upload size={16} />}
+                {p.assets.length ? mediaActionLabel : '파일 선택'}
+              </span>
               <span className="local-note">원본 파일은 기기 안에 머무릅니다.</span>
-            </div>
+            </button>
           )}
           {error ? (
             <div className="preview-error" role="alert">

@@ -82,6 +82,7 @@ input[type='number'] {
   font-variant-numeric: tabular-nums;
 }
 button:focus-visible,
+summary:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
@@ -244,7 +245,7 @@ a {
   border-radius: 5px;
   padding: 9px 13px;
 }
-.secondary:hover {
+.secondary:hover:not(:disabled) {
   background: #f5f8fa;
 }
 .full {
@@ -534,13 +535,13 @@ a {
   display: grid;
   place-items: center;
 }
-.start-canvas h1 {
+.start-canvas .start-title {
   font-size: 17px;
   letter-spacing: -0.4px;
   font-weight: 500;
   margin-bottom: 9px;
 }
-.start-canvas p {
+.start-canvas .start-copy {
   font-size: 12px;
   color: var(--muted);
   margin-bottom: 22px;
@@ -1247,7 +1248,7 @@ a {
   text-align: left;
   border-radius: 3px;
 }
-.small-menu button:hover {
+.small-menu button:hover:not(:disabled) {
   background: #eff7f9;
 }
 .track-menu-wrap .small-menu {
@@ -1305,7 +1306,7 @@ a {
   color: #237f8c;
   box-shadow: 0 1px 5px #0002;
 }
-.asset-add:hover {
+.asset-add:hover:not(:disabled) {
   background: #d5f0f3;
 }
 .asset-card strong {
@@ -1757,10 +1758,10 @@ a {
     height: 46px;
     margin-bottom: 13px;
   }
-  .start-canvas h1 {
+  .start-canvas .start-title {
     font-size: 15px;
   }
-  .start-canvas p {
+  .start-canvas .start-copy {
     margin-bottom: 14px;
   }
   .local-note {
@@ -1794,10 +1795,10 @@ a {
   .preview-area {
     padding: 0 16px 8px;
   }
-  .start-canvas h1 {
+  .start-canvas .start-title {
     font-size: 14px;
   }
-  .start-canvas p {
+  .start-canvas .start-copy {
     font-size: 12px;
   }
   .preview-meta .dot-separator,
@@ -1936,11 +1937,11 @@ a {
   .start-mark > svg {
     width: 23px;
   }
-  .start-canvas h1 {
+  .start-canvas .start-title {
     font-size: 14px;
     margin-bottom: 6px;
   }
-  .start-canvas p {
+  .start-canvas .start-copy {
     font-size: 12px;
     margin-bottom: 12px;
   }
@@ -2111,10 +2112,10 @@ a {
   .start-mark {
     display: none;
   }
-  .start-canvas h1 {
+  .start-canvas .start-title {
     font-size: 13px;
   }
-  .start-canvas p {
+  .start-canvas .start-copy {
     font-size: 12px;
     margin-bottom: 12px;
   }
@@ -2504,4 +2505,356 @@ a {
   overflow: auto;
   padding-left: 24px;
   font-size: 13px;
+}
+
+/* Polish: action hierarchy and state feedback share the existing cyan palette. */
+.primary:active:not(:disabled) {
+  background: #185e68;
+}
+.secondary:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.text-tool:active:not(:disabled) {
+  background: #dff0f3;
+}
+.text-tool[aria-pressed='true'] {
+  background: #e1f2f4;
+  color: var(--cyan);
+  box-shadow: inset 0 -2px var(--cyan);
+}
+.library-tabs button:hover:not(.selected),
+.mobile-navigation button:hover:not(.selected),
+.precision-tools > button:hover:not(:disabled),
+.precision-tools summary:hover {
+  background: #edf4f6;
+}
+summary {
+  cursor: pointer;
+  line-height: 1.65;
+}
+.quality-field .segmented label {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.quality-field label.selected {
+  border-color: var(--cyan);
+}
+.quality-field label:focus-within {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.insert-selection {
+  margin-top: 10px;
+  text-align: left;
+  line-height: 1.6;
+}
+.start-canvas {
+  border-radius: 0;
+}
+.start-canvas:hover {
+  background: #f9fcfd;
+}
+.start-canvas:focus-visible {
+  outline-offset: -4px;
+}
+.start-copy {
+  line-height: 1.7;
+  max-width: 380px;
+}
+@container (max-width: 220px) {
+  .start-canvas {
+    padding: 10px;
+  }
+  .start-mark,
+  .start-copy,
+  .local-note {
+    display: none;
+  }
+  .start-canvas .start-title {
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .start-canvas .primary {
+    padding: 8px;
+    gap: 5px;
+  }
+}
+.asset-preview:focus-within {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.asset-duration,
+.local-pill {
+  font-size: 12px;
+}
+.asset-details {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.selection-heading h2,
+.missing-banner > div,
+.recent-list strong,
+.import-error-row,
+.warning,
+.preview-error,
+.toast > span,
+.processing-status > span,
+.gap-impact li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.missing-banner p {
+  font-size: 12px;
+}
+.small-menu {
+  max-width: calc(100vw - 24px);
+}
+.small-menu button {
+  white-space: normal;
+  min-height: 36px;
+}
+.import-progress,
+.loading-dialog {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.65;
+}
+.import-progress {
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.import-errors summary {
+  color: #895b39;
+  font-weight: 700;
+}
+.import-error-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.import-error-row .secondary {
+  margin-top: 8px;
+}
+.import-error-row > strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.toast {
+  width: max-content;
+  max-height: 25dvh;
+  overflow-y: auto;
+  align-items: flex-start;
+}
+.toast .icon-button {
+  position: sticky;
+  top: 0;
+}
+.processing-status {
+  align-items: center;
+  max-width: calc(100vw - 24px);
+  width: max-content;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.processing-status .secondary {
+  flex: none;
+}
+.dialog-heading {
+  margin-bottom: 16px;
+  gap: 12px;
+}
+.recent-list {
+  margin-top: 16px;
+}
+.recent-list .secondary {
+  line-height: 1.65;
+}
+.empty-state {
+  padding: 16px;
+  background: #f5f8fa;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.export-dialog {
+  --dialog-padding: 27px;
+  max-height: 92dvh;
+  scroll-padding-block: 20px 100px;
+}
+.export-summary {
+  flex-wrap: wrap;
+}
+.export-summary > div {
+  min-width: 0;
+  flex: 1;
+}
+.export-summary > .secondary {
+  flex: none;
+  white-space: nowrap;
+}
+.export-dialog .modal-actions {
+  position: sticky;
+  bottom: calc(-1 * var(--dialog-padding));
+  margin-bottom: calc(-1 * var(--dialog-padding));
+  padding-bottom: var(--dialog-padding);
+  background: #fff;
+  z-index: 2;
+}
+.modal-actions button {
+  min-height: 40px;
+}
+.export-success h3 {
+  line-height: 1.65;
+}
+.output-player {
+  display: block;
+  margin: 16px auto 12px;
+}
+.export-success > .secondary {
+  margin-inline: auto;
+}
+
+@media (max-width: 860px) {
+  .app-header {
+    height: auto;
+    min-height: 100px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+    padding: 8px 12px;
+  }
+  .brand {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 17px;
+    gap: 6px;
+  }
+  .project-title {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    max-width: 200px;
+    justify-self: end;
+  }
+  .project-title input {
+    width: 100%;
+    max-width: none;
+  }
+  .save-state {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .header-actions {
+    grid-column: 2;
+    grid-row: 2;
+    gap: 6px;
+    margin: 0;
+    justify-content: flex-end;
+  }
+  .header-actions > .shortcut-help {
+    display: none;
+  }
+  .export-button {
+    flex: none;
+    white-space: nowrap;
+    margin-left: 0;
+    padding: 9px 12px;
+    min-height: 36px;
+  }
+  .mobile-navigation {
+    height: 44px;
+  }
+  .preview-panel .panel-top {
+    height: auto;
+    min-height: 40px;
+    padding: 6px 12px;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .preview-meta {
+    min-width: 0;
+    gap: 6px;
+  }
+  .transport {
+    display: grid;
+    grid-template-columns: minmax(104px, 1fr) auto minmax(70px, 1fr);
+    gap: 6px;
+    height: auto;
+    padding: 8px 12px;
+  }
+  .transport-controls {
+    gap: 4px;
+  }
+  .time-input {
+    width: 100%;
+    font-size: 12px;
+    letter-spacing: 0;
+  }
+  .total-time {
+    justify-self: end;
+    font-size: 12px;
+    letter-spacing: 0;
+  }
+  .transport .audio-meter {
+    grid-column: 3;
+    justify-self: end;
+  }
+  .export-dialog {
+    --dialog-padding: 22px;
+  }
+  .project-menu {
+    position: fixed;
+    left: auto;
+    right: 12px;
+    top: 54px;
+    width: min(300px, calc(100vw - 24px));
+    max-height: calc(100dvh - 70px);
+    overflow-y: auto;
+  }
+}
+@media (max-width: 480px) {
+  .brand-symbol {
+    width: 24px;
+    height: 24px;
+  }
+  .brand {
+    font-size: 16px;
+    gap: 5px;
+  }
+  .project-title {
+    max-width: 180px;
+  }
+  .export-summary > .secondary {
+    width: 100%;
+  }
+  .transport {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .transport .total-time {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .transport .audio-meter {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .transport > .text-tool {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+}
+@media (pointer: coarse) {
+  .small-menu button,
+  .modal-actions button,
+  .header-actions button,
+  .quality-field .segmented label {
+    min-height: 44px;
+  }
 }

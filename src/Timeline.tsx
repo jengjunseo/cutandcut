@@ -36,7 +36,7 @@ import {
   type Project,
   type Clip,
 } from './model';
-import { IconButton } from './ui';
+import { IconButton, usePopup } from './ui';
 import PrecisionTools from './PrecisionTools';
 type Props = {
   project: Project;
@@ -99,6 +99,7 @@ export default memo(function Timeline({
     [snapPoint, setSnapPoint] = useState<number | null>(null),
     [trackMenu, setTrackMenu] = useState(false);
   const fittedProject = useRef('');
+  const trackPopup = usePopup(trackMenu, setTrackMenu);
   const [box, setBox] = useState<{ x: number; y: number; width: number; height: number }>(),
     ignoreClick = useRef(false);
   function boxSelect(e: React.PointerEvent) {
@@ -493,12 +494,17 @@ export default memo(function Timeline({
           </IconButton>
         </div>
         <div className="timeline-right">
-          <div className="track-menu-wrap">
-            <button className="text-tool" onClick={() => setTrackMenu(!trackMenu)}>
+          <div className="track-menu-wrap" ref={trackPopup}>
+            <button
+              className="text-tool"
+              aria-expanded={trackMenu}
+              aria-controls="track-menu"
+              onClick={() => setTrackMenu(!trackMenu)}
+            >
               <Plus size={14} /> 트랙
             </button>
             {trackMenu ? (
-              <div className="small-menu">
+              <div className="small-menu" id="track-menu">
                 <button
                   onClick={() => {
                     addTrack('visual');

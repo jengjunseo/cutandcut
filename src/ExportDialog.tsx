@@ -11,7 +11,7 @@ import {
 import { duration, seconds, requiredAssets, type Project } from './model';
 import { checkCapabilities, createEngine, files, type Capabilities } from './engine';
 import { download } from './storage';
-import { Field, IconButton, formatBytes } from './ui';
+import { Field, IconButton, formatBytes, trapDialogFocus } from './ui';
 import { ratioOf, setRatio, ratios } from './Inspector';
 import { exportBudget } from './export-policy';
 type Props = {
@@ -108,6 +108,19 @@ export default function ExportDialog({ project, onClose, range }: Props) {
       old?.focus();
     };
   }, []);
+  useEffect(() => {
+    const selector =
+      status === 'done'
+        ? '.modal-actions .primary'
+        : status === 'running'
+          ? '.modal-actions button'
+          : status === 'error'
+            ? '.export-error'
+            : status === 'cancelled'
+              ? '.export-cancelled'
+              : '';
+    if (selector) dialog.current?.querySelector<HTMLElement>(selector)?.focus();
+  }, [status]);
   function start() {
     if (worker.current || !canExport) return;
     setStatus('running');
@@ -203,28 +216,13 @@ export default function ExportDialog({ project, onClose, range }: Props) {
             if (status === 'running') cancel();
             else onClose();
           }
-          if (e.key === 'Tab') {
-            const items = Array.from(
-              dialog.current!.querySelectorAll<HTMLElement>(
-                'button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href]',
-              ),
-            );
-            const first = items[0],
-              last = items.at(-1);
-            if (e.shiftKey && document.activeElement === first) {
-              e.preventDefault();
-              last?.focus();
-            } else if (!e.shiftKey && document.activeElement === last) {
-              e.preventDefault();
-              first?.focus();
-            }
-          }
+          trapDialogFocus(e);
         }}
       >
         <div className="modal-heading">
           <div>
-            <span className="eyebrow">마지막 한 단계</span>
-            <h2 id="export-title">이야기를 파일로 완성하세요.</h2>
+            <span className="eyebrow">파일 형식과 품질을 확인하세요</span>
+            <h2 id="export-title">내보내기</h2>
           </div>
           <IconButton label="내보내기 닫기" disabled={status === 'running'} onClick={onClose}>
             <X size={20} />
@@ -412,7 +410,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
               </p>
             ) : null}
             {!caps ? (
-              <p className="checking">
+              <p className="checking" role="status">
                 <LoaderCircle size={14} className="spin" /> 현재 환경의 인코더 확인 중
               </p>
             ) : null}
@@ -458,10 +456,10 @@ export default function ExportDialog({ project, onClose, range }: Props) {
           </>
         ) : null}
         {status === 'running' ? (
-          <div className="export-progress">
+          <div className="export-progress" aria-busy="true">
             <LoaderCircle className="spin" size={30} />
             <strong>{stage}</strong>
-            <progress max={1} value={progress} />
+            <progress aria-label="내보내기 진행률" max={1} value={progress} />
             <span>{Math.round(progress * 100)}% · 처리 프레임 기준</span>
             <p>탭을 닫지 마세요. 편집 내용은 이 출력 작업과 별도로 보존됩니다.</p>
           </div>
@@ -469,7 +467,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
         {status === 'done' && blob ? (
           <div className="export-success">
             <CheckCircle2 size={42} />
-            <h3>내보내기가 완료됐습니다.</h3>
+            <h3 role="status">내보내기가 완료됐습니다.</h3>
             <p>
               {formatBytes(blob.size)} · {format.toUpperCase()}
             </p>
@@ -503,12 +501,12 @@ export default function ExportDialog({ project, onClose, range }: Props) {
           </div>
         ) : null}
         {status === 'error' ? (
-          <p role="alert" className="warning">
+          <p role="alert" className="warning export-error" tabIndex={-1}>
             {error}
           </p>
         ) : null}
         {status === 'cancelled' ? (
-          <p role="status" className="small-note">
+          <p role="status" className="small-note export-cancelled" tabIndex={-1}>
             {stage}
           </p>
         ) : null}
