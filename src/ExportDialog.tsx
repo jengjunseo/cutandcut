@@ -8,11 +8,11 @@ import {
   Monitor,
   ArrowRight,
 } from 'lucide-react';
-import { duration, seconds, requiredAssets, type Project } from './model';
+import { duration, seconds, requiredAssets, activeTracks, type Project } from './model';
 import { checkCapabilities, createEngine, files, type Capabilities } from './engine';
 import { download } from './storage';
 import { Field, IconButton, formatBytes, trapDialogFocus } from './ui';
-import { ratioOf, setRatio, ratios } from './Inspector';
+import { ratioOf, setRatio, ratios } from './geometry';
 import { exportBudget } from './export-policy';
 type Props = {
   project: Project;
@@ -24,9 +24,6 @@ export default function ExportDialog({ project, onClose, range }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false),
     [useRange, setUseRange] = useState(false),
     [largePlayer, setLargePlayer] = useState(false);
-  function settings(p: Project) {
-    setSnapshot(p);
-  }
   const [format, setFormat] = useState<'mp4' | 'webm' | 'wav' | 'mp3'>('mp4'),
     [quality, setQuality] = useState('standard'),
     [bitrate, setBitrate] = useState(8),
@@ -43,11 +40,9 @@ export default function ExportDialog({ project, onClose, range }: Props) {
   const [audioStats, setAudioStats] = useState<{ peak: number; clippedSamples: number }>();
   const from = useRange && range ? range.start : 0;
   const to = useRange && range ? Math.min(duration(snapshot), range.end) : duration(snapshot);
+  const visualTracks = activeTracks(snapshot, 'visual');
   const visible = snapshot.clips.filter(
-    (c) =>
-      c.start < to &&
-      c.start + c.duration > from &&
-      !snapshot.tracks.find((t) => t.id === c.trackId)?.hidden,
+    (c) => c.start < to && c.start + c.duration > from && visualTracks.has(c.trackId),
   );
   const needed = requiredAssets(snapshot, from, to, format === 'mp4' || format === 'webm');
   const missing = snapshot.assets.filter((a) => needed.has(a.id) && !files.has(a.id));
@@ -79,6 +74,11 @@ export default function ExportDialog({ project, onClose, range }: Props) {
   const length = seconds(to - from);
   const budget = exportBudget(format, length, snapshot.fps, bitrate * 1e6);
   const estimate = budget.estimate;
+  function stopWorker() {
+    generation.current++;
+    worker.current?.terminate();
+    worker.current = null;
+  }
   useEffect(() => {
     let active = true;
     setCaps(null);
@@ -104,7 +104,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
     const old = document.activeElement as HTMLElement;
     dialog.current?.focus();
     return () => {
-      worker.current?.terminate();
+      stopWorker();
       old?.focus();
     };
   }, []);
@@ -129,60 +129,59 @@ export default function ExportDialog({ project, onClose, range }: Props) {
     setAudioStats(undefined);
     setProgress(0);
     setStage('엔진 시작');
-    const w = createEngine();
-    worker.current = w;
     const gen = ++generation.current;
-    for (const a of snapshot.assets) {
-      const file = files.get(a.id);
-      if (file) w.postMessage({ type: 'file', id: a.id, file });
-    }
-    w.onmessage = (e) => {
+    const fail = (message: string) => {
       if (gen !== generation.current) return;
-      const d = e.data;
-      if (d.type === 'progress') {
-        setProgress(d.progress);
-        setStage(d.stage + (d.frames ? ` · ${d.frames}/${d.total} 프레임` : ''));
-      } else if (d.type === 'complete') {
-        setAudioStats(d.audio);
-        const result = new Blob([d.buffer], {
-          type:
-            format === 'mp4'
-              ? 'video/mp4'
-              : format === 'webm'
-                ? 'video/webm'
-                : format === 'mp3'
-                  ? 'audio/mpeg'
-                  : 'audio/wav',
-        });
-        setBlob(result);
-        setStatus('done');
-        w.terminate();
-        worker.current = null;
-      } else if (d.type === 'error') {
-        setError(d.error);
-        setStatus('error');
-        w.terminate();
-        worker.current = null;
-      }
-    };
-    w.onerror = (e) => {
+      stopWorker();
+      setError(message);
       setStatus('error');
-      setError(e.message || '내보내기 Worker를 실행할 수 없습니다.');
-      w.terminate();
-      worker.current = null;
     };
-    w.postMessage({
-      type: 'export',
-      project: snapshot,
-      format,
-      bitrate: bitrate * 1e6,
-      range: { start: from, end: to },
-    });
+    try {
+      const w = createEngine();
+      worker.current = w;
+      for (const a of snapshot.assets) {
+        const file = files.get(a.id);
+        if (file) w.postMessage({ type: 'file', id: a.id, file });
+      }
+      w.onmessage = (e) => {
+        if (gen !== generation.current) return;
+        const d = e.data;
+        if (d.type === 'progress') {
+          setProgress(d.progress);
+          setStage(d.stage + (d.frames ? ` · ${d.frames}/${d.total} 프레임` : ''));
+        } else if (d.type === 'complete') {
+          setAudioStats(d.audio);
+          const result = new Blob([d.buffer], {
+            type:
+              format === 'mp4'
+                ? 'video/mp4'
+                : format === 'webm'
+                  ? 'video/webm'
+                  : format === 'mp3'
+                    ? 'audio/mpeg'
+                    : 'audio/wav',
+          });
+          setBlob(result);
+          setStatus('done');
+          stopWorker();
+        } else if (d.type === 'error') {
+          fail(d.error);
+        }
+      };
+      w.onerror = (e) => fail(e.message || '내보내기 Worker를 실행할 수 없습니다.');
+      w.postMessage({
+        type: 'export',
+        project: snapshot,
+        format,
+        bitrate: bitrate * 1e6,
+        range: { start: from, end: to },
+      });
+    } catch (e) {
+      fail(e instanceof Error ? e.message : '내보내기 Worker를 실행할 수 없습니다.');
+    }
   }
   function cancel() {
-    generation.current++;
-    worker.current?.terminate();
-    worker.current = null;
+    stopWorker();
     setStatus('cancelled');
     setStage('내보내기를 취소했습니다. 프로젝트는 유지됩니다.');
   }
@@ -258,7 +257,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                   <select
                     value={ratioOf(snapshot)}
                     onChange={(e) =>
-                      settings(
+                      setSnapshot(
                         setRatio(
                           snapshot,
                           e.target.value as keyof typeof ratios,
@@ -279,7 +278,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                   <select
                     value={Math.min(snapshot.width, snapshot.height) >= 1080 ? 1080 : 720}
                     onChange={(e) =>
-                      settings(
+                      setSnapshot(
                         setRatio(
                           snapshot,
                           ratioOf(snapshot) === '사용자 지정'
@@ -297,7 +296,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                 <Field label="출력 FPS">
                   <select
                     value={snapshot.fps}
-                    onChange={(e) => settings({ ...snapshot, fps: Number(e.target.value) })}
+                    onChange={(e) => setSnapshot({ ...snapshot, fps: Number(e.target.value) })}
                   >
                     {[24, 25, 30, 50, 60].map((fps) => (
                       <option key={fps}>{fps}</option>

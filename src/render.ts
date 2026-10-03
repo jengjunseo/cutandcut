@@ -22,51 +22,57 @@ export class Renderer {
     ctx.fillStyle = p.background;
     ctx.fillRect(0, 0, w, h);
     const visible = layers(p, time);
-    const active = new Set<string>();
+    const active = new Set(
+      visible.filter((layer) => layer.clip.kind === 'video').map((layer) => layer.clip.id),
+    );
+    // Release previous scenes before admitting new sources into the bounded cache.
+    await this.releaseInactive(active);
     for (const { clip: c, sourceTime, alpha, overlay, overlayAlpha } of visible) {
       ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.translate(w * c.x, h * c.y);
-      ctx.rotate((c.rotation * Math.PI) / 180);
-      ctx.scale(c.scale, c.scale);
-      if (c.kind === 'text') drawText(ctx, c, w, p.width);
-      else if (c.assetId) {
-        const r = await this.pool.get(c.assetId);
-        let source: CanvasImageSource | undefined = r.image;
-        if (r.video) {
-          active.add(c.id);
-          let cursor = this.cursors.get(c.id);
-          if (!cursor) {
-            cursor = new VideoCursor(r.video, Math.max(1, Math.round(w * 1.5)), c.assetId);
-            this.pool.pin(c.assetId);
-            this.cursors.set(c.id, cursor);
+      try {
+        ctx.globalAlpha = alpha;
+        ctx.translate(w * c.x, h * c.y);
+        ctx.rotate((c.rotation * Math.PI) / 180);
+        ctx.scale(c.scale, c.scale);
+        if (c.kind === 'text') drawText(ctx, c, w, p.width);
+        else if (c.assetId) {
+          const r = await this.pool.get(c.assetId);
+          let source: CanvasImageSource | undefined = r.image;
+          if (r.video) {
+            let cursor = this.cursors.get(c.id);
+            if (!cursor) {
+              cursor = new VideoCursor(r.video, Math.max(1, Math.round(w * 1.5)), c.assetId);
+              this.pool.pin(c.assetId);
+              this.cursors.set(c.id, cursor);
+            }
+            const asset = p.assets.find((a) => a.id === c.assetId)!;
+            const timestamp = (asset.origin ?? asset.videoStart) + Math.max(0, sourceTime);
+            source = timestamp + 0.5e-6 < asset.videoStart ? undefined : await cursor.at(timestamp);
           }
-          const asset = p.assets.find((a) => a.id === c.assetId)!;
-          const timestamp = (asset.origin ?? asset.videoStart) + Math.max(0, sourceTime);
-          source = timestamp + 0.5e-6 < asset.videoStart ? undefined : await cursor.at(timestamp);
+          if (source) {
+            const sw = (source as ImageBitmap | OffscreenCanvas).width,
+              sh = (source as ImageBitmap | OffscreenCanvas).height;
+            const crop = c.crop ?? { left: 0, right: 0, top: 0, bottom: 0 },
+              cw = sw * (1 - crop.left - crop.right),
+              ch = sh * (1 - crop.top - crop.bottom);
+            const scale = c.fit === 'cover' ? Math.max(w / cw, h / ch) : Math.min(w / cw, h / ch);
+            ctx.scale(c.flipX ? -1 : 1, c.flipY ? -1 : 1);
+            ctx.drawImage(
+              source,
+              sw * crop.left,
+              sh * crop.top,
+              cw,
+              ch,
+              (-cw * scale) / 2,
+              (-ch * scale) / 2,
+              cw * scale,
+              ch * scale,
+            );
+          }
         }
-        if (source) {
-          const sw = (source as ImageBitmap | OffscreenCanvas).width,
-            sh = (source as ImageBitmap | OffscreenCanvas).height;
-          const crop = c.crop ?? { left: 0, right: 0, top: 0, bottom: 0 },
-            cw = sw * (1 - crop.left - crop.right),
-            ch = sh * (1 - crop.top - crop.bottom);
-          const scale = c.fit === 'cover' ? Math.max(w / cw, h / ch) : Math.min(w / cw, h / ch);
-          ctx.scale(c.flipX ? -1 : 1, c.flipY ? -1 : 1);
-          ctx.drawImage(
-            source,
-            sw * crop.left,
-            sh * crop.top,
-            cw,
-            ch,
-            (-cw * scale) / 2,
-            (-ch * scale) / 2,
-            cw * scale,
-            ch * scale,
-          );
-        }
+      } finally {
+        ctx.restore();
       }
-      ctx.restore();
       if (overlay) {
         ctx.save();
         ctx.globalAlpha = (overlayAlpha ?? 0) * alpha;
@@ -75,6 +81,8 @@ export class Renderer {
         ctx.restore();
       }
     }
+  }
+  private async releaseInactive(active: Set<string>) {
     for (const [key, cursor] of this.cursors)
       if (!active.has(key)) {
         await cursor.close();
@@ -83,11 +91,7 @@ export class Renderer {
       }
   }
   async close() {
-    for (const c of this.cursors.values()) {
-      await c.close();
-      this.pool.release(c.assetId);
-    }
-    this.cursors.clear();
+    await this.releaseInactive(new Set());
     this.canvas.width = this.canvas.height = 1;
   }
 }

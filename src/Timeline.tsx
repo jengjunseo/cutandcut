@@ -35,8 +35,10 @@ import {
   editable,
   type Project,
   type Clip,
+  type Track,
+  type Transition,
 } from './model';
-import { IconButton, usePopup } from './ui';
+import { IconButton, NameInput, usePopup } from './ui';
 import PrecisionTools from './PrecisionTools';
 type Props = {
   project: Project;
@@ -53,6 +55,7 @@ type Props = {
   duplicate: () => void;
   addTrack: (kind: 'audio' | 'visual') => void;
   dropAsset: (assetId: string, trackId: string, start: number) => void;
+  applyTransition: (kind: Transition['kind'], clipId: string) => void;
   snap: boolean;
   setSnap: (s: boolean) => void;
   tool: 'select' | 'split';
@@ -60,7 +63,6 @@ type Props = {
   zoom: number;
   setZoom: (v: number) => void;
   notify: (s: string) => void;
-  onFocus: () => void;
 };
 export default memo(function Timeline({
   project: p,
@@ -77,6 +79,7 @@ export default memo(function Timeline({
   duplicate,
   addTrack,
   dropAsset,
+  applyTransition,
   snap,
   setSnap,
   tool,
@@ -84,10 +87,8 @@ export default memo(function Timeline({
   zoom,
   setZoom,
   notify,
-  onFocus,
 }: Props) {
-  const scroll = useRef<HTMLDivElement>(null),
-    dragging = useRef(false);
+  const scroll = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0),
     [viewport, setViewport] = useState(1200),
     [ghost, setGhost] = useState<{
@@ -250,13 +251,12 @@ export default memo(function Timeline({
   function dragClip(e: React.PointerEvent, c: Clip, edge?: 'start' | 'end') {
     if (e.button !== 0) return;
     e.stopPropagation();
-    onFocus();
     setActiveTrack(c.trackId);
     if (p.tracks.find((t) => t.id === c.trackId)?.locked) {
       notify('잠긴 트랙은 편집할 수 없습니다.');
       return;
     }
-    let ids = selected.includes(c.id)
+    const ids = selected.includes(c.id)
       ? selected
       : e.shiftKey || e.ctrlKey || e.metaKey
         ? [...selected, c.id]
@@ -285,7 +285,6 @@ export default memo(function Timeline({
       clientX = e.clientX,
       clientY = e.clientY,
       animation = 0;
-    dragging.current = true;
     const update = () => {
       const total = clientX - startX + scroll.current!.scrollLeft - startScroll;
       let delta = tick(total / zoom);
@@ -341,11 +340,13 @@ export default memo(function Timeline({
       target.removeEventListener('pointerup', onEnd);
       target.removeEventListener('pointercancel', onCancel);
       window.removeEventListener('keydown', escape);
-      dragging.current = false;
       draft(undefined);
       setSnapPoint(null);
     };
-    const onEnd = () => {
+    const onEnd = (event: PointerEvent) => {
+      clientX = event.clientX;
+      clientY = event.clientY;
+      if (moved) update();
       cleanup();
       if (moved) commit(next);
     };
@@ -360,7 +361,6 @@ export default memo(function Timeline({
   }
   function rulerDrag(e: React.PointerEvent) {
     if (e.button !== 0) return;
-    onFocus();
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
     const change = (event: PointerEvent) => seek(Math.min(duration(p), at(event.clientX)));
@@ -374,7 +374,7 @@ export default memo(function Timeline({
     el.addEventListener('pointerup', end, { once: true });
     el.addEventListener('pointercancel', end, { once: true });
   }
-  function patchTrack(trackId: string, value: Record<string, unknown>) {
+  function patchTrack(trackId: string, value: Partial<Track>) {
     commit({ ...p, tracks: p.tracks.map((t) => (t.id === trackId ? { ...t, ...value } : t)) });
   }
   function reorderTrack(index: number, delta: number) {
@@ -441,7 +441,7 @@ export default memo(function Timeline({
     seek(Math.min(duration(p), at(e.clientX)));
   }
   return (
-    <section className="timeline-panel" tabIndex={0} aria-label="편집 타임라인" onFocus={onFocus}>
+    <section className="timeline-panel" tabIndex={0} aria-label="편집 타임라인">
       <div className="timeline-toolbar">
         <div className="tool-group">
           <IconButton
@@ -610,9 +610,10 @@ export default memo(function Timeline({
                   <span className={`track-symbol ${track.kind}`}>
                     {track.kind === 'audio' ? <Music size={13} /> : <Layers size={13} />}
                   </span>
-                  <TrackName
+                  <NameInput
+                    label={track.name + ' 이름'}
                     name={track.name}
-                    onCommit={(name) => patchTrack(track.id, { name })}
+                    onCommit={(name) => patchTrack(track.id, { name: name || track.name })}
                   />
                   <span className="track-number">{index + 1}</span>
                   <IconButton
@@ -734,12 +735,14 @@ export default memo(function Timeline({
                           if (transition) {
                             e.preventDefault();
                             e.stopPropagation();
-                            select([c.id]);
-                            window.dispatchEvent(
-                              new CustomEvent('cyancut-transition', {
-                                detail: { clipId: c.id, kind: transition },
-                              }),
-                            );
+                            if (
+                              transition === 'dissolve' ||
+                              transition === 'black' ||
+                              transition === 'white'
+                            ) {
+                              select([c.id]);
+                              applyTransition(transition, c.id);
+                            }
                           }
                         }}
                       >
@@ -870,21 +873,3 @@ export default memo(function Timeline({
     </section>
   );
 });
-
-function TrackName({ name, onCommit }: { name: string; onCommit: (s: string) => void }) {
-  const [value, setValue] = useState(name);
-  useEffect(() => setValue(name), [name]);
-  return (
-    <input
-      aria-label={name + ' 이름'}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => {
-        if (value !== name) onCommit(value || name);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur();
-      }}
-    />
-  );
-}

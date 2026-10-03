@@ -13,31 +13,9 @@ import {
   type Clip,
   type Project,
 } from './model';
-import { Field, IconButton } from './ui';
+import { Field } from './ui';
 import { changeSpeed } from './editing';
-export const ratios = {
-  '16:9': [16, 9],
-  '9:16': [9, 16],
-  '1:1': [1, 1],
-  '4:5': [4, 5],
-  '4:3': [4, 3],
-} as const;
-export function setRatio(p: Project, ratio: keyof typeof ratios, resolution: number) {
-  const [a, b] = ratios[ratio];
-  const short = Math.min(a, b);
-  return {
-    ...p,
-    width: Math.round((resolution * a) / short / 2) * 2,
-    height: Math.round((resolution * b) / short / 2) * 2,
-  };
-}
-export function ratioOf(p: Project) {
-  return (
-    (Object.keys(ratios) as (keyof typeof ratios)[]).find(
-      (k) => Math.abs(p.width / p.height - ratios[k][0] / ratios[k][1]) < 0.005,
-    ) ?? '사용자 지정'
-  );
-}
+import { ratios, ratioOf, setRatio } from './geometry';
 type Props = {
   project: Project;
   selected: string[];
@@ -218,7 +196,9 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                     <Field label="정렬">
                       <select
                         value={c.text.align}
-                        onChange={(e) => text({ align: e.target.value as 'left' })}
+                        onChange={(e) =>
+                          text({ align: e.target.value as NonNullable<Clip['text']>['align'] })
+                        }
                       >
                         <option value="left">왼쪽</option>
                         <option value="center">가운데</option>
@@ -361,7 +341,7 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                       <Field label="화면 맞춤 · 비율 유지">
                         <select
                           value={c.fit}
-                          onChange={(e) => patch({ fit: e.target.value as 'contain' })}
+                          onChange={(e) => patch({ fit: e.target.value as Clip['fit'] })}
                         >
                           <option value="contain">전체 보기 · 여백 추가</option>
                           <option value="cover">채우기 · 크롭</option>

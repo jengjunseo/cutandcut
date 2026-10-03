@@ -9,14 +9,21 @@ import {
   type WrappedCanvas,
   type AudioSample,
 } from 'mediabunny';
-import { id, tick, seconds, type Asset, type Project, type Clip, audioGain } from './model';
+import { id, tick, seconds, type Asset, type Project, activeTracks, audioGain } from './model';
 import { Stretch } from '@soundtouchjs/core';
+type MediaResource = {
+  input: Input;
+  video?: InputVideoTrack;
+  audio?: InputAudioTrack;
+  image?: ImageBitmap;
+};
+function disposeResource(resource: MediaResource) {
+  resource.input.dispose();
+  resource.image?.close();
+}
 export class MediaPool {
   files = new Map<string, File>();
-  resources = new Map<
-    string,
-    { input: Input; video?: InputVideoTrack; audio?: InputAudioTrack; image?: ImageBitmap }
-  >();
+  resources = new Map<string, MediaResource>();
   pins = new Map<string, number>();
   pin(key: string) {
     this.pins.set(key, (this.pins.get(key) ?? 0) + 1);
@@ -29,8 +36,7 @@ export class MediaPool {
   register(assetId: string, file: File) {
     this.files.set(assetId, file);
     const existing = this.resources.get(assetId);
-    existing?.input.dispose();
-    existing?.image?.close();
+    if (existing) disposeResource(existing);
     this.resources.delete(assetId);
   }
   async get(assetId: string) {
@@ -44,38 +50,37 @@ export class MediaPool {
     if (!file) throw new Error('누락된 원본 파일을 보관함에서 재연결하세요.');
     const isImage = /^image\//.test(file.type) || /\.(png|jpe?g|webp|gif|avif)$/i.test(file.name);
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
-    if (isImage)
-      r = { input, image: await createImageBitmap(file, { imageOrientation: 'from-image' }) };
-    else {
-      const [video, audio] = await Promise.all([
-        input.getPrimaryVideoTrack(),
-        input.getPrimaryAudioTrack(),
-      ]);
-      r = { input, video: video ?? undefined, audio: audio ?? undefined };
-    }
-    // Bounded source metadata/image cache; decoding cursors own only a few frames.
-    if (this.resources.size >= 12) {
-      const key = [...this.resources.keys()].find((k) => !this.pins.has(k));
-      if (!key) {
-        input.dispose();
-        r.image?.close();
-        throw new Error(
-          '동시 디코딩 원본 12개 한도를 초과합니다. 일부 트랙을 숨기거나 음소거하세요.',
-        );
+    try {
+      if (isImage)
+        r = { input, image: await createImageBitmap(file, { imageOrientation: 'from-image' }) };
+      else {
+        const [video, audio] = await Promise.all([
+          input.getPrimaryVideoTrack(),
+          input.getPrimaryAudioTrack(),
+        ]);
+        r = { input, video: video ?? undefined, audio: audio ?? undefined };
       }
-      const old = this.resources.get(key)!;
-      old.input.dispose();
-      old.image?.close();
-      this.resources.delete(key);
+      // Bounded source metadata/image cache; decoding cursors own only a few frames.
+      if (this.resources.size >= 12) {
+        const key = [...this.resources.keys()].find((k) => !this.pins.has(k));
+        if (!key) {
+          throw new Error(
+            '동시 디코딩 원본 12개 한도를 초과합니다. 일부 트랙을 숨기거나 음소거하세요.',
+          );
+        }
+        const old = this.resources.get(key)!;
+        disposeResource(old);
+        this.resources.delete(key);
+      }
+      this.resources.set(assetId, r);
+      return r;
+    } catch (error) {
+      disposeResource(r ?? { input });
+      throw error;
     }
-    this.resources.set(assetId, r);
-    return r;
   }
   close() {
-    for (const r of this.resources.values()) {
-      r.input.dispose();
-      r.image?.close();
-    }
+    for (const r of this.resources.values()) disposeResource(r);
     this.resources.clear();
     this.files.clear();
     this.pins.clear();
@@ -174,17 +179,21 @@ export async function waveform(file: File, asset: Asset) {
     const sink = new AudioSampleSink(r.audio);
     const peaks = new Array<number>(120).fill(0);
     for await (const sample of sink.samples()) {
-      const data = new Float32Array(sample.numberOfFrames);
-      sample.copyTo(data, { planeIndex: 0, format: 'f32-planar' });
-      const bin = Math.max(
-        0,
-        Math.min(
-          119,
-          Math.floor(((sample.timestamp - asset.audioStart) / seconds(asset.duration)) * 120),
-        ),
-      );
-      for (let i = 0; i < data.length; i += 8) peaks[bin] = Math.max(peaks[bin], Math.abs(data[i]));
-      sample.close();
+      try {
+        const data = new Float32Array(sample.numberOfFrames);
+        sample.copyTo(data, { planeIndex: 0, format: 'f32-planar' });
+        const bin = Math.max(
+          0,
+          Math.min(
+            119,
+            Math.floor(((sample.timestamp - asset.audioStart) / seconds(asset.duration)) * 120),
+          ),
+        );
+        for (let i = 0; i < data.length; i += 8)
+          peaks[bin] = Math.max(peaks[bin], Math.abs(data[i]));
+      } finally {
+        sample.close();
+      }
     }
     return peaks;
   } finally {
@@ -336,12 +345,11 @@ export class AudioMixer {
     const out = new Float32Array(count * 2);
     const from = startSample / rate,
       to = (startSample + count) / rate;
+    const audible = activeTracks(this.project, 'audio');
     const clips = this.project.clips.filter(
       (c) =>
         c.kind === 'audio' &&
-        !this.project.tracks.find((t) => t.id === c.trackId)?.muted &&
-        (!this.project.tracks.some((t) => t.kind === 'audio' && t.solo) ||
-          !!this.project.tracks.find((t) => t.id === c.trackId)?.solo) &&
+        audible.has(c.trackId) &&
         seconds(c.start) < to &&
         seconds(c.start + c.duration) > from,
     );

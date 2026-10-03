@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { SkipBack, SkipForward, Play, Pause, Film, Upload, Maximize, Volume2 } from 'lucide-react';
+import { SkipBack, SkipForward, Play, Pause, Film, Upload, Maximize } from 'lucide-react';
 import type { Clip, Project } from './model';
-import { duration, timecode, frameTick } from './model';
+import { duration, timecode, frameTick, editable, linked } from './model';
 import { createEngine, files } from './engine';
 import { IconButton } from './ui';
 import { fitPreview } from './geometry';
@@ -61,7 +61,14 @@ export default function Preview({
     setError('');
     const c = canvas.current;
     c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
-    const w = createEngine();
+    let w: Worker;
+    try {
+      w = createEngine();
+    } catch (e) {
+      worker.current = null;
+      setError(e instanceof Error ? e.message : '미리보기 엔진을 시작할 수 없습니다.');
+      return;
+    }
     worker.current = w;
     w.onmessage = (e) => {
       if (e.data.type === 'frame') {
@@ -80,6 +87,7 @@ export default function Preview({
       setError('미리보기 엔진을 시작할 수 없습니다. Chrome 또는 Edge에서 다시 시도하세요.');
     return () => {
       w.terminate();
+      worker.current = null;
       registered.current.clear();
     };
   }, [p.id]);
@@ -90,26 +98,37 @@ export default function Preview({
     if (stage.current) observer.observe(stage.current);
     return () => observer.disconnect();
   }, []);
+  function renderPreview(project: Project) {
+    try {
+      worker.current?.postMessage({
+        type: 'preview',
+        project,
+        time,
+        seq: ++seq.current,
+        width: Math.max(16, Math.round(Math.min(960, width) * quality)),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '미리보기 요청을 전달할 수 없습니다.');
+    }
+  }
   useEffect(() => {
     const w = worker.current;
     if (!w || !p.clips.length) return;
-    for (const a of p.assets) {
-      const file = files.get(a.id);
-      if (file && registered.current.get(a.id) !== file) {
-        w.postMessage({ type: 'file', id: a.id, file });
-        registered.current.set(a.id, file);
+    try {
+      for (const a of p.assets) {
+        const file = files.get(a.id);
+        if (file && registered.current.get(a.id) !== file) {
+          w.postMessage({ type: 'file', id: a.id, file });
+          registered.current.set(a.id, file);
+        }
       }
+      renderPreview(p);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '미리보기 원본을 전달할 수 없습니다.');
     }
-    w.postMessage({
-      type: 'preview',
-      project: p,
-      time,
-      seq: ++seq.current,
-      width: Math.max(16, Math.round(Math.min(960, width) * quality)),
-    });
   }, [p, time, width, quality]);
   const selectedText = p.clips.find((c) => selected.includes(c.id) && c.kind !== 'audio');
-  const locked = selectedText && p.tracks.find((t) => t.id === selectedText.trackId)?.locked;
+  const locked = selectedText && !editable(p, linked(p, [selectedText.id]));
   useEffect(() => setCropMode(false), [selectedText?.id, selectedText?.rotation]);
   function dragText(
     event: React.PointerEvent,
@@ -158,14 +177,7 @@ export default function Preview({
         ),
       };
       setGesture(next.clips.find((c) => c.id === clip.id));
-      if (worker.current)
-        worker.current.postMessage({
-          type: 'preview',
-          project: next,
-          time,
-          seq: ++seq.current,
-          width: Math.max(16, Math.round(Math.min(960, width) * quality)),
-        });
+      renderPreview(next);
     };
     const cleanup = () => {
       target.removeEventListener('pointermove', move);
@@ -184,13 +196,7 @@ export default function Preview({
       setGesture(undefined);
       target.style.left = `${clip.x * 100}%`;
       target.style.top = `${clip.y * 100}%`;
-      worker.current?.postMessage({
-        type: 'preview',
-        project: base,
-        time,
-        seq: ++seq.current,
-        width: Math.max(16, Math.round(Math.min(960, width) * quality)),
-      });
+      renderPreview(base);
       update(base);
     };
     const key = (e: KeyboardEvent) => {

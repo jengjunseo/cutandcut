@@ -3,7 +3,6 @@ import {
   id,
   tick,
   frameTick,
-  seconds,
   duration,
   trim,
   linked,
@@ -77,27 +76,21 @@ export function groupClips(p: Project, selection: string[], ungroup = false) {
   };
 }
 export function changeSpeed(p: Project, selection: string[], speed: number, preservePitch = true) {
-  const members = linked(p, selection).filter((c) => c.kind === 'video' || c.kind === 'audio');
-  if (!editable(p, members) || !Number.isFinite(speed) || speed < 0.5 || speed > 2) return p;
+  const linkedMembers = linked(p, selection);
+  if (!editable(p, linkedMembers) || !Number.isFinite(speed) || speed < 0.5 || speed > 2) return p;
+  const members = linkedMembers.filter((c) => c.kind === 'video' || c.kind === 'audio');
+  if (!members.length) return p;
   const ids = new Set(members.map((c) => c.id));
   if (members.some((c) => Math.round((c.duration * (c.speed ?? 1)) / speed) < frameTick(1, p.fps)))
     return p;
-  return normalize({
-    ...structuredClone(p),
-    clips: structuredClone(p.clips).map((c) =>
-      ids.has(c.id)
-        ? {
-            ...c,
-            speed,
-            preservePitch,
-            duration: Math.max(
-              frameTick(1, p.fps),
-              Math.round((c.duration * (c.speed ?? 1)) / speed),
-            ),
-          }
-        : c,
-    ),
-  });
+  const next = structuredClone(p);
+  for (const c of next.clips)
+    if (ids.has(c.id)) {
+      c.duration = Math.round((c.duration * (c.speed ?? 1)) / speed);
+      c.speed = speed;
+      c.preservePitch = preservePitch;
+    }
+  return normalize(next);
 }
 export function markRange(p: Project, time: number, edge: 'start' | 'end') {
   let start = p.workRange?.start ?? 0,

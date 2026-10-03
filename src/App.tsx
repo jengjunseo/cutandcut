@@ -10,7 +10,6 @@ import {
   Type,
   Layers,
   Music,
-  Image,
   FolderOpen,
   ShieldCheck,
   Keyboard,
@@ -22,7 +21,6 @@ import {
   Link2,
   ArrowRight,
   X,
-  PanelLeft,
   Trash2,
   TriangleAlert,
   Clock3,
@@ -35,7 +33,6 @@ import {
   duration,
   frameTick,
   timecode,
-  addAsset,
   split,
   remove,
   paste,
@@ -45,7 +42,6 @@ import {
   validateProject,
   projectLimitError,
   PROJECT_MAX_TIME,
-  type Asset,
   type Clip,
   type Project,
   type Transition,
@@ -68,7 +64,15 @@ import Inspector from './Inspector';
 import CaptionPanel from './CaptionPanel';
 import AudioMeter from './AudioMeter';
 import RecentProjects from './RecentProjects';
-import { Field, IconButton, formatBytes, usePopup, shortFilename } from './ui';
+import {
+  Field,
+  IconButton,
+  NameInput,
+  formatBytes,
+  usePopup,
+  shortFilename,
+  trapDialogFocus,
+} from './ui';
 const ExportDialog = lazy(() => import('./ExportDialog'));
 const shortcuts = [
   ['Space', '재생 / 일시정지'],
@@ -99,7 +103,6 @@ export default function App() {
     projectRef = useRef(project);
   projectRef.current = project;
   const history = useRef(new History()),
-    [revision, setRevision] = useState(0),
     [draft, setDraft] = useState<Project>(),
     [selected, setSelected] = useState<string[]>([]),
     [activeTrack, setActiveTrack] = useState(''),
@@ -138,7 +141,6 @@ export default function App() {
     projectInput = useRef<HTMLInputElement>(null),
     clipboard = useRef<Clip[]>([]),
     toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined),
-    timelineFocused = useRef(false),
     saveGeneration = useRef(0),
     importBusy = useRef(false),
     importAbort = useRef<AbortController>(null),
@@ -166,7 +168,6 @@ export default function App() {
       projectRef.current = result;
       setProject(result);
       setDraft(undefined);
-      setRevision((v) => v + 1);
     },
     [notify],
   );
@@ -200,25 +201,17 @@ export default function App() {
     );
     audio.current.stop();
   }, []);
-  function undo() {
+  function restoreHistory(action: 'undo' | 'redo') {
     setPlaying(false);
-    const next = history.current.undo(projectRef.current);
+    const next = history.current[action](projectRef.current);
     editGeneration.current++;
     projectRef.current = next;
     setProject(next);
-    setRevision((v) => v + 1);
     setDraft(undefined);
     setSelected((ids) => ids.filter((id) => next.clips.some((c) => c.id === id)));
   }
-  function redo() {
-    setPlaying(false);
-    const next = history.current.redo(projectRef.current);
-    editGeneration.current++;
-    projectRef.current = next;
-    setProject(next);
-    setRevision((v) => v + 1);
-    setDraft(undefined);
-  }
+  const undo = () => restoreHistory('undo');
+  const redo = () => restoreHistory('redo');
   function saveDownload() {
     download(
       new Blob([JSON.stringify(projectRef.current, null, 2)], { type: 'application/json' }),
@@ -492,14 +485,6 @@ export default function App() {
       else projectPopup.current?.querySelector<HTMLButtonElement>(':scope > button')?.focus();
     };
   }, [helpOpen]);
-  useEffect(() => {
-    const handle = (e: Event) => {
-      const { clipId, kind } = (e as CustomEvent).detail;
-      applyTransition(kind, clipId);
-    };
-    window.addEventListener('cyancut-transition', handle);
-    return () => window.removeEventListener('cyancut-transition', handle);
-  });
   async function importFiles(incoming: File[]) {
     if (switchBusy.current || !ready) return;
     if (importBusy.current) {
@@ -738,7 +723,6 @@ export default function App() {
       projectRef.current = target;
       setProject(target);
       setDraft(undefined);
-      setRevision((v) => v + 1);
       setSelected([]);
       setAssetSelection([]);
       setImportErrors([]);
@@ -948,9 +932,10 @@ export default function App() {
         </a>
         <span className="header-divider" />
         <div className="project-title" ref={projectPopup}>
-          <ProjectName
+          <NameInput
+            label="프로젝트 이름"
             name={project.name}
-            onChange={(name) => commit({ ...project, name: name || '이름 없는 프로젝트' })}
+            onCommit={(name) => commit({ ...project, name: name || '이름 없는 프로젝트' })}
           />
           <IconButton
             label="프로젝트 메뉴"
@@ -1564,6 +1549,7 @@ export default function App() {
         duplicate={duplicate}
         addTrack={addTrack}
         dropAsset={appendAsset}
+        applyTransition={applyTransition}
         snap={snap}
         setSnap={setSnap}
         tool={tool}
@@ -1571,9 +1557,6 @@ export default function App() {
         zoom={zoom}
         setZoom={setZoom}
         notify={notify}
-        onFocus={() => {
-          timelineFocused.current = true;
-        }}
       />
       <input
         ref={fileInput}
@@ -1673,10 +1656,7 @@ export default function App() {
             tabIndex={0}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setHelpOpen(false);
-              if (e.key === 'Tab') {
-                e.preventDefault();
-                e.currentTarget.querySelector<HTMLElement>('button')?.focus();
-              }
+              trapDialogFocus(e);
             }}
           >
             <div className="modal-heading">
@@ -1704,22 +1684,5 @@ export default function App() {
         </div>
       ) : null}
     </div>
-  );
-}
-function ProjectName({ name, onChange }: { name: string; onChange: (name: string) => void }) {
-  const [draft, setDraft] = useState(name);
-  useEffect(() => setDraft(name), [name]);
-  return (
-    <input
-      aria-label="프로젝트 이름"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft !== name) onChange(draft);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur();
-      }}
-    />
   );
 }

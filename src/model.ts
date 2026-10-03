@@ -1,5 +1,6 @@
 export const SECOND = 1_000_000;
 export const PROJECT_MAX_TIME = 3600 * SECOND;
+export const PROJECT_MAX_DIMENSION = 1920;
 export function projectLimitError(p: Project): string | undefined {
   if (p.clips.length > 10000 || p.assets.length > 1000)
     return '프로젝트는 클립 10,000개·원본 1,000개까지 지원합니다.';
@@ -203,8 +204,16 @@ export function addAsset(p: Project, asset: Asset, start?: number, trackId?: str
   return next;
 }
 export function split(p: Project, selected: string[], at: number): Project {
-  const targets = linked(p, selected).filter((c) => at > c.start && at < c.start + c.duration);
-  if (!editable(p, targets)) return p;
+  const members = linked(p, selected);
+  if (!editable(p, members)) return p;
+  const targets = members.filter((c) => at > c.start && at < c.start + c.duration);
+  const minimum = frameTick(1, p.fps);
+  if (
+    !Number.isSafeInteger(at) ||
+    !targets.length ||
+    targets.some((c) => at - c.start < minimum || c.start + c.duration - at < minimum)
+  )
+    return p;
   const next = structuredClone(p);
   const rightLinks = new Map<string, string>();
   for (const target of targets) {
@@ -458,15 +467,21 @@ export type Layer = {
   overlay?: string;
   overlayAlpha?: number;
 };
+/** Solo applies within each track kind; hiding/muting a solo track keeps it excluded. */
+export function activeTracks(p: Project, kind: Track['kind']): Set<string> {
+  const tracks = p.tracks.filter((t) => t.kind === kind);
+  const solo = tracks.some((t) => t.solo);
+  return new Set(
+    tracks
+      .filter((t) => !(kind === 'audio' ? t.muted : t.hidden) && (!solo || t.solo))
+      .map((t) => t.id),
+  );
+}
 export function layers(p: Project, time: number): Layer[] {
   const output: Layer[] = [];
+  const visible = activeTracks(p, 'visual');
   for (const track of [...p.tracks].reverse()) {
-    if (
-      track.kind === 'audio' ||
-      track.hidden ||
-      (p.tracks.some((t) => t.kind === 'visual' && t.solo) && !track.solo)
-    )
-      continue;
+    if (!visible.has(track.id)) continue;
     const clips = p.clips
       .filter((c) => c.trackId === track.id && c.kind !== 'audio')
       .sort((a, b) => a.start - b.start);
@@ -520,20 +535,11 @@ export function audioGain(c: Clip, time: number) {
 /** Sources that can actually contribute to a range, including dissolve pre-roll. */
 export function requiredAssets(p: Project, start: number, end: number, visual = true) {
   const keys = new Set<string>();
+  const audible = activeTracks(p, 'audio'),
+    visible = activeTracks(p, 'visual');
   for (const c of p.clips) {
     if (!c.assetId) continue;
-    const track = p.tracks.find((t) => t.id === c.trackId)!;
-    if (c.kind === 'audio') {
-      if (track.muted || (p.tracks.some((t) => t.kind === 'audio' && t.solo) && !track.solo))
-        continue;
-    } else {
-      if (
-        !visual ||
-        track.hidden ||
-        (p.tracks.some((t) => t.kind === 'visual' && t.solo) && !track.solo)
-      )
-        continue;
-    }
+    if (c.kind === 'audio' ? !audible.has(c.trackId) : !visual || !visible.has(c.trackId)) continue;
     const pre = c.transition?.kind === 'dissolve' ? c.transition.duration : 0;
     if (c.start - pre < end && c.start + c.duration > start) keys.add(c.assetId);
   }
@@ -587,8 +593,8 @@ export function validateProject(value: unknown): Project {
     !Number.isInteger(p.height) ||
     p.width < 16 ||
     p.height < 16 ||
-    p.width > 1920 ||
-    p.height > 1920 ||
+    p.width > PROJECT_MAX_DIMENSION ||
+    p.height > PROJECT_MAX_DIMENSION ||
     ![24, 25, 30, 50, 60].includes(p.fps) ||
     typeof p.background !== 'string'
   )
@@ -621,7 +627,20 @@ export function validateProject(value: unknown): Project {
       !['video', 'image', 'audio'].includes(a.kind) ||
       !Number.isSafeInteger(a.duration) ||
       a.duration < 0 ||
-      !Number.isFinite(a.size)
+      !Number.isSafeInteger(a.size) ||
+      a.size < 0 ||
+      !Number.isFinite(a.lastModified) ||
+      !Number.isSafeInteger(a.width) ||
+      a.width < 0 ||
+      !Number.isSafeInteger(a.height) ||
+      a.height < 0 ||
+      (a.kind !== 'audio' && (!a.width || !a.height)) ||
+      !Number.isFinite(a.videoStart) ||
+      !Number.isFinite(a.audioStart) ||
+      (a.origin !== undefined && !Number.isFinite(a.origin)) ||
+      typeof a.container !== 'string' ||
+      typeof a.hasAudio !== 'boolean' ||
+      typeof a.stored !== 'boolean'
     )
       fail();
     assets.add(a.id);
@@ -637,6 +656,9 @@ export function validateProject(value: unknown): Project {
     )
       fail();
     clips.add(c.id);
+    const track = p.tracks.find((t) => t.id === c.trackId)!;
+    if (track.kind !== (c.kind === 'audio' ? 'audio' : 'visual')) fail();
+    if (c.linkId !== undefined && typeof c.linkId !== 'string') fail();
     if (c.textRole !== undefined && !['title', 'caption'].includes(c.textRole)) fail();
     if (c.groupId !== undefined && typeof c.groupId !== 'string') fail();
     if (c.speed !== undefined && (!Number.isFinite(c.speed) || c.speed < 0.5 || c.speed > 2))
@@ -682,6 +704,17 @@ export function validateProject(value: unknown): Project {
     if (c.kind !== 'text' && !assets.has(c.assetId ?? '')) fail();
     const a = p.assets.find((a) => a.id === c.assetId);
     if (
+      a &&
+      (c.kind === 'video'
+        ? a.kind !== 'video'
+        : c.kind === 'image'
+          ? a.kind !== 'image'
+          : c.kind === 'audio'
+            ? !a.hasAudio || (a.kind !== 'audio' && a.kind !== 'video')
+            : false)
+    )
+      fail();
+    if (
       (c.kind === 'video' || c.kind === 'audio') &&
       a &&
       c.sourceIn + Math.round(c.duration * (c.speed ?? 1)) > a.duration + 1
@@ -695,7 +728,11 @@ export function validateProject(value: unknown): Project {
         c.text.size <= 0 ||
         !['left', 'center', 'right'].includes(c.text.align) ||
         typeof c.text.color !== 'string' ||
-        typeof c.text.background !== 'string')
+        typeof c.text.background !== 'string' ||
+        typeof c.text.bold !== 'boolean' ||
+        typeof c.text.shadow !== 'boolean' ||
+        !Number.isFinite(c.text.outline) ||
+        c.text.outline < 0)
     )
       fail();
     if (

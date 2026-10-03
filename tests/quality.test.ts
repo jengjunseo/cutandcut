@@ -3,7 +3,6 @@ import {
   emptyProject,
   clipDefaults,
   id,
-  tick,
   PROJECT_MAX_TIME,
   projectLimitError,
   validateProject,

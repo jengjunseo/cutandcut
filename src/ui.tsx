@@ -1,6 +1,7 @@
 import {
   useEffect,
   useRef,
+  useState,
   type ComponentProps,
   type KeyboardEvent,
   type ReactNode,
@@ -116,6 +117,32 @@ export function Field({ label, children }: { label: string; children: ReactNode 
       <span>{label}</span>
       {children}
     </label>
+  );
+}
+/** Names commit once on blur; Enter must not interrupt an IME composition. */
+export function NameInput({
+  name,
+  label,
+  onCommit,
+}: {
+  name: string;
+  label: string;
+  onCommit: (name: string) => void;
+}) {
+  const [value, setValue] = useState(name);
+  useEffect(() => setValue(name), [name]);
+  return (
+    <input
+      aria-label={label}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        if (value !== name) onCommit(value);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur();
+      }}
+    />
   );
 }
 export const formatBytes = (size: number) =>

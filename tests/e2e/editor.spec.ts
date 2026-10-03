@@ -1,6 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 async function fixtures(page: Page) {
   return page.evaluate(async () => {
     const url = '/tests/fixtures.browser.ts';

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { type Project, linked, editable, seconds } from './model';
 import { clipBoundary, trimToHead, markRange, deleteGap, gapRange, groupClips } from './editing';
+import { trapDialogFocus } from './ui';
 export default function PrecisionTools({
   p,
   time,
@@ -98,21 +99,7 @@ export default function PrecisionTools({
             onKeyDown={(e) => {
               e.stopPropagation();
               if (e.key === 'Escape') setPending(undefined);
-              if (e.key === 'Tab') {
-                const buttons =
-                  dialog.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
-                if (
-                  e.shiftKey &&
-                  (document.activeElement === buttons[0] ||
-                    document.activeElement === dialog.current)
-                ) {
-                  e.preventDefault();
-                  buttons[buttons.length - 1]?.focus();
-                } else if (!e.shiftKey && document.activeElement === buttons[buttons.length - 1]) {
-                  e.preventDefault();
-                  buttons[0]?.focus();
-                }
-              }
+              trapDialogFocus(e);
             }}
           >
             <h2>전체 트랙의 구간 제거</h2>

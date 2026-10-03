@@ -30,7 +30,8 @@ const scope = self as unknown as {
 };
 const pool = new MediaPool();
 let renderer: Renderer | undefined;
-let latest: Record<string, unknown> | undefined;
+type PreviewRequest = { project: Project; time: number; seq: number; width: number };
+let latest: PreviewRequest | undefined;
 let rendering = false;
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 scope.onmessage = (event) => {
@@ -115,12 +116,7 @@ async function preview() {
   rendering = true;
   try {
     while (latest) {
-      const data = latest as unknown as {
-        project: Project;
-        time: number;
-        seq: number;
-        width: number;
-      };
+      const data = latest;
       latest = undefined;
       const { project: p } = data;
       const width = Math.min(p.width, data.width),
@@ -207,42 +203,10 @@ async function exportProject(
     const frameCount = Math.ceil(length * p.fps),
       sampleCount = Math.ceil((video ? frameCount / p.fps : length) * 48000);
     let audioAt = 0;
-    if (video && visual) {
-      for (let frame = 0; frame < frameCount; frame++) {
-        const time = from + frameTick(frame, p.fps);
-        await visual.render(p, time);
-        await video.add(frame / p.fps, 1 / p.fps);
-        const boundary = Math.min(sampleCount, Math.ceil(((frame + 1) / p.fps) * 48000));
-        while (audioAt < boundary) {
-          const count = Math.min(4096, boundary - audioAt);
-          const data = await mixer.block(Math.round(seconds(from) * 48000) + audioAt, count);
-          const sample = new AudioSample({
-            data,
-            format: 'f32',
-            numberOfChannels: 2,
-            sampleRate: 48000,
-            timestamp: audioAt / 48000,
-          });
-          try {
-            await audio.add(sample);
-          } finally {
-            sample.close();
-          }
-          audioAt += count;
-        }
-        if (frame % Math.max(1, Math.floor(p.fps / 4)) === 0)
-          scope.postMessage({
-            type: 'progress',
-            stage: '영상 · 오디오 인코딩',
-            progress: (frame + 1) / frameCount,
-            frames: frame + 1,
-            total: frameCount,
-          });
-      }
-    } else {
-      while (audioAt < sampleCount) {
-        const count = Math.min(4096, sampleCount - audioAt);
-        const data = await mixer.block(Math.round(seconds(from) * 48000) + audioAt, count);
+    async function encodeAudioUntil(boundary: number) {
+      while (audioAt < boundary) {
+        const count = Math.min(4096, boundary - audioAt);
+        const data = await mixer!.block(Math.round(seconds(from) * 48000) + audioAt, count);
         const sample = new AudioSample({
           data,
           format: 'f32',
@@ -256,6 +220,27 @@ async function exportProject(
           sample.close();
         }
         audioAt += count;
+      }
+    }
+    if (video && visual) {
+      for (let frame = 0; frame < frameCount; frame++) {
+        const time = from + frameTick(frame, p.fps);
+        await visual.render(p, time);
+        await video.add(frame / p.fps, 1 / p.fps);
+        const boundary = Math.min(sampleCount, Math.ceil(((frame + 1) / p.fps) * 48000));
+        await encodeAudioUntil(boundary);
+        if (frame % Math.max(1, Math.floor(p.fps / 4)) === 0)
+          scope.postMessage({
+            type: 'progress',
+            stage: '영상 · 오디오 인코딩',
+            progress: (frame + 1) / frameCount,
+            frames: frame + 1,
+            total: frameCount,
+          });
+      }
+    } else {
+      while (audioAt < sampleCount) {
+        await encodeAudioUntil(Math.min(sampleCount, audioAt + 4096));
         if (audioAt % 65536 < 4096)
           scope.postMessage({
             type: 'progress',

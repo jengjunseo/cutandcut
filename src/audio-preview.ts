@@ -1,4 +1,4 @@
-import { audioGain, seconds, type Project } from './model';
+import { audioGain, activeTracks, seconds, type Project } from './model';
 import { files } from './engine';
 type Playing = {
   element: HTMLAudioElement;
@@ -21,26 +21,20 @@ export class AudioPreview {
   }
   sync(p: Project, time: number, playing: boolean, rate: number) {
     if (!this.context) return;
+    const audible = activeTracks(p, 'audio');
     const active = p.clips.filter(
       (c) =>
         c.kind === 'audio' &&
         time >= c.start &&
         time < c.start + c.duration &&
-        !p.tracks.find((t) => t.id === c.trackId)?.muted &&
-        (!p.tracks.some((t) => t.kind === 'audio' && t.solo) ||
-          !!p.tracks.find((t) => t.id === c.trackId)?.solo) &&
+        audible.has(c.trackId) &&
         playing &&
         rate > 0,
     );
     const ids = new Set(active.map((c) => c.id));
     for (const [key, value] of this.playing)
       if (!ids.has(key)) {
-        value.element.pause();
-        value.source.disconnect();
-        value.gain.disconnect();
-        value.element.removeAttribute('src');
-        value.element.load();
-        URL.revokeObjectURL(value.url);
+        this.release(value);
         this.playing.delete(key);
       }
     for (const c of active) {
@@ -58,11 +52,10 @@ export class AudioPreview {
         a = { element, gain, source, url };
         this.playing.set(c.id, a);
       }
+      const asset = p.assets.find((a) => a.id === c.assetId);
       const target =
         seconds(c.sourceIn + (time - c.start) * (c.speed ?? 1)) +
-        (p.assets.find((a) => a.id === c.assetId)?.origin ??
-          p.assets.find((a) => a.id === c.assetId)?.audioStart ??
-          0);
+        (asset?.origin ?? asset?.audioStart ?? 0);
       if (Math.abs(a.element.currentTime - target) > 0.18)
         a.element.currentTime = Math.max(0, target);
       a.element.playbackRate = Math.min(16, rate * (c.speed ?? 1));
@@ -76,15 +69,16 @@ export class AudioPreview {
     }
   }
   stop() {
-    for (const a of this.playing.values()) {
-      a.element.pause();
-      a.source.disconnect();
-      a.gain.disconnect();
-      a.element.removeAttribute('src');
-      a.element.load();
-      URL.revokeObjectURL(a.url);
-    }
+    for (const a of this.playing.values()) this.release(a);
     this.playing.clear();
+  }
+  private release(a: Playing) {
+    a.element.pause();
+    a.source.disconnect();
+    a.gain.disconnect();
+    a.element.removeAttribute('src');
+    a.element.load();
+    URL.revokeObjectURL(a.url);
   }
   close() {
     this.stop();
