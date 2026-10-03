@@ -53,6 +53,10 @@ export default function Preview({
   const fitted = fitPreview(bounds.width, bounds.height, p.width / p.height);
   const width = Math.round(fitted.width);
   useEffect(() => {
+    seq.current++;
+    setError('');
+    const c = canvas.current;
+    c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
     const w = createEngine();
     worker.current = w;
     w.onmessage = (e) => {
@@ -74,7 +78,7 @@ export default function Preview({
       w.terminate();
       registered.current.clear();
     };
-  }, []);
+  }, [p.id]);
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) =>
       setBounds({ width: entry.contentRect.width, height: entry.contentRect.height }),

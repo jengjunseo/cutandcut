@@ -41,6 +41,8 @@ import {
   clipDefaults,
   setTransition,
   validateProject,
+  projectLimitError,
+  PROJECT_MAX_TIME,
   type Asset,
   type Clip,
   type Project,
@@ -125,6 +127,7 @@ export default function App() {
     [projectMenu, setProjectMenu] = useState(false),
     [recentOpen, setRecentOpen] = useState(false),
     [processing, setProcessing] = useState(''),
+    [switching, setSwitching] = useState(false),
     [dragOver, setDragOver] = useState(false),
     [mobileTab, setMobileTab] = useState('preview'),
     [layout, setLayout] = useState({ left: 270, right: 270, timeline: 330 }),
@@ -138,19 +141,33 @@ export default function App() {
     importBusy = useRef(false),
     importAbort = useRef<AbortController>(null),
     taskAbort = useRef<AbortController>(null);
+  const switchBusy = useRef(false),
+    projectTasks = useRef(new AbortController()),
+    editGeneration = useRef(0),
+    saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const notify = useCallback((message: string) => {
     setToast(message);
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 6000);
   }, []);
-  const commit = useCallback((next: Project) => {
-    const previous = projectRef.current;
-    const result = history.current.commit(previous, next);
-    projectRef.current = result;
-    setProject(result);
-    setDraft(undefined);
-    setRevision((v) => v + 1);
-  }, []);
+  const commit = useCallback(
+    (next: Project) => {
+      if (switchBusy.current) return;
+      const limit = projectLimitError(next);
+      if (limit) {
+        notify(limit);
+        return;
+      }
+      const previous = projectRef.current;
+      const result = history.current.commit(previous, next);
+      if (result !== previous) editGeneration.current++;
+      projectRef.current = result;
+      setProject(result);
+      setDraft(undefined);
+      setRevision((v) => v + 1);
+    },
+    [notify],
+  );
   useEffect(() => {
     let live = true;
     setStartupCaps(undefined);
@@ -184,6 +201,7 @@ export default function App() {
   function undo() {
     setPlaying(false);
     const next = history.current.undo(projectRef.current);
+    editGeneration.current++;
     projectRef.current = next;
     setProject(next);
     setRevision((v) => v + 1);
@@ -193,6 +211,7 @@ export default function App() {
   function redo() {
     setPlaying(false);
     const next = history.current.redo(projectRef.current);
+    editGeneration.current++;
     projectRef.current = next;
     setProject(next);
     setRevision((v) => v + 1);
@@ -277,12 +296,13 @@ export default function App() {
       live = false;
       audio.current.close();
       importAbort.current?.abort();
+      projectTasks.current.abort();
       taskAbort.current?.abort();
       clearTimeout(toastTimer.current);
     };
   }, [notify]);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || switchBusy.current) return;
     const generation = ++saveGeneration.current;
     setSaveStatus('저장 대기');
     const timer = setTimeout(() => {
@@ -298,6 +318,7 @@ export default function App() {
           }
         });
     }, 700);
+    saveTimer.current = timer;
     return () => clearTimeout(timer);
   }, [project, ready, notify]);
   useEffect(() => {
@@ -346,7 +367,9 @@ export default function App() {
         target?.closest('input,textarea,select,[contenteditable="true"]') ||
         exportOpen ||
         helpOpen ||
-        recentOpen
+        recentOpen ||
+        !ready ||
+        switchBusy.current
       )
         return;
       if (e.key === ' ' && target?.closest('button')) return;
@@ -473,6 +496,7 @@ export default function App() {
     return () => window.removeEventListener('cyancut-transition', handle);
   });
   async function importFiles(incoming: File[]) {
+    if (switchBusy.current || !ready) return;
     if (importBusy.current) {
       notify('현재 파일 분석이 끝난 뒤 다시 가져오세요.');
       return;
@@ -481,6 +505,9 @@ export default function App() {
     const abort = new AbortController();
     importAbort.current = abort;
     const wasEmpty = !projectRef.current.clips.length;
+    const projectId = projectRef.current.id;
+    const projectSignal = projectTasks.current.signal;
+    const currentImport = () => !abort.signal.aborted && projectRef.current.id === projectId;
     setPlaying(false);
     try {
       for (const file of incoming) {
@@ -488,7 +515,11 @@ export default function App() {
         setImporting(`${file.name} 분석 중`);
         try {
           const asset = await inspect(file, abort.signal);
-          if (abort.signal.aborted) break;
+          if (!currentImport()) break;
+          if (asset.duration > PROJECT_MAX_TIME)
+            throw new Error(
+              '현재 원본 한 파일과 프로젝트 타임라인은 각각 60분까지 지원합니다. 60분 이하로 나누어 가져오세요. 출력은 현재 설정에 따라 최대 5분입니다.',
+            );
           const p = projectRef.current;
           const missing = p.assets.find(
             (a) =>
@@ -508,9 +539,11 @@ export default function App() {
               } catch {
                 notify(`${file.name}: 원본 저장 실패. 프로젝트 파일과 원본을 따로 보관하세요.`);
               }
+            if (!currentImport()) break;
+            const current = projectRef.current;
             commit({
-              ...p,
-              assets: p.assets.map((a) =>
+              ...current,
+              assets: current.assets.map((a) =>
                 a.id === asset.id ? { ...a, stored: asset.stored, thumbnail: asset.thumbnail } : a,
               ),
             });
@@ -531,6 +564,7 @@ export default function App() {
               );
             }
           }
+          if (!currentImport()) break;
           const next = autoInsert
             ? insertMedia(projectRef.current, asset, timeRef.current)
             : { ...projectRef.current, assets: [...projectRef.current.assets, asset] };
@@ -539,8 +573,9 @@ export default function App() {
           if (asset.kind === 'image' && /\.gif$/i.test(file.name))
             notify('GIF는 첫 프레임을 정지 이미지로 가져옵니다.');
           if (asset.hasAudio)
-            void request<number[]>('waveform', { file, asset })
+            void request<number[]>('waveform', { file, asset }, projectSignal)
               .then((peaks) => {
+                if (projectSignal.aborted || projectRef.current.id !== projectId) return;
                 const current = projectRef.current;
                 if (current.assets.some((a) => a.id === asset.id)) {
                   const updated = {
@@ -553,7 +588,10 @@ export default function App() {
                   setProject(updated);
                 }
               })
-              .catch(() => notify(`${asset.name}: 파형 생성에 실패했지만 편집은 유지됩니다.`));
+              .catch(() => {
+                if (!projectSignal.aborted && projectRef.current.id === projectId)
+                  notify(`${asset.name}: 파형 생성에 실패했지만 편집은 유지됩니다.`);
+              });
         } catch (e) {
           if (e instanceof DOMException && e.name === 'AbortError') {
             notify('가져오기를 취소했습니다. 이미 가져온 파일과 편집은 유지됩니다.');
@@ -567,7 +605,7 @@ export default function App() {
         }
       }
     } finally {
-      if (wasEmpty && projectRef.current.clips.length)
+      if (currentImport() && wasEmpty && projectRef.current.clips.length)
         setZoom(
           Math.max(
             8,
@@ -626,6 +664,7 @@ export default function App() {
     const c: Clip = {
       id: id(),
       kind: 'text',
+      textRole: preset === 'title' ? 'title' : 'caption',
       trackId: track.id,
       name: '텍스트',
       start: timeRef.current,
@@ -659,59 +698,84 @@ export default function App() {
     commit(result.project);
     notify(result.message);
   }
+  // All entry points share flush, cancellation, durable target save and history reset.
+  async function switchProject(load: () => Promise<Project>) {
+    if (switchBusy.current || !ready) return;
+    switchBusy.current = true;
+    setSwitching(true);
+    clearTimeout(saveTimer.current);
+    saveGeneration.current++;
+    importAbort.current?.abort();
+    projectTasks.current.abort();
+    projectTasks.current = new AbortController();
+    taskAbort.current?.abort();
+    setPlaying(false);
+    audio.current.stop();
+    setSaveStatus('전환 전 저장 중');
+    try {
+      await saveProject(projectRef.current);
+      const target = validateProject(await load());
+      const originals = new Map<string, File>();
+      await Promise.all(
+        target.assets.map(async (a) => {
+          const file = files.get(a.id) ?? (await loadFile(a.id));
+          if (file) originals.set(a.id, file);
+        }),
+      );
+      await saveProject(target);
+      files.clear();
+      for (const [key, file] of originals) files.set(key, file);
+      history.current.clear();
+      editGeneration.current++;
+      clipboard.current = [];
+      projectRef.current = target;
+      setProject(target);
+      setDraft(undefined);
+      setRevision((v) => v + 1);
+      setSelected([]);
+      setAssetSelection([]);
+      setImportErrors([]);
+      setTime(0);
+      setActiveTrack(target.tracks.find((t) => t.kind === 'visual')?.id ?? '');
+      setSaveStatus('기기에 자동 저장됨');
+      if (target.assets.some((a) => !files.has(a.id)))
+        notify('누락 원본을 다시 가져와 재연결하세요.');
+    } catch (e) {
+      setSaveStatus('전환 실패 · 현재 작업 유지');
+      notify(
+        e instanceof Error
+          ? e.message
+          : '프로젝트 전환에 실패했습니다. 현재 작업을 파일로 저장하세요.',
+      );
+      throw e;
+    } finally {
+      switchBusy.current = false;
+      setSwitching(false);
+    }
+  }
   async function openProject(file: File) {
     try {
-      if (file.size > 20 * 1024 * 1024) throw new Error('프로젝트 JSON은 20MB 이하여야 합니다.');
-      const p = validateProject(JSON.parse(await file.text()));
-      for (const a of p.assets) {
-        if (!files.has(a.id)) {
-          const original = await loadFile(a.id);
-          if (original) files.set(a.id, original);
-        }
-      }
-      setPlaying(false);
-      commit(p);
-      setSelected([]);
-      setTime(0);
-      notify(
-        p.assets.some((a) => !files.has(a.id))
-          ? '프로젝트를 열었습니다. 누락 원본을 다시 가져와 재연결하세요.'
-          : '프로젝트를 열었습니다.',
-      );
-    } catch (e) {
-      notify(e instanceof Error ? e.message : '프로젝트를 읽을 수 없습니다.');
+      await switchProject(async () => {
+        if (file.size > 20 * 1024 * 1024) throw new Error('프로젝트 JSON은 20MB 이하여야 합니다.');
+        return validateProject(JSON.parse(await file.text()));
+      });
+    } catch {
+      /* switchProject displays the error and preserves the active project. */
     }
   }
   async function activateProject(p: Project) {
-    await saveProject(projectRef.current);
-    for (const a of p.assets) {
-      const file = await loadFile(a.id);
-      if (file) files.set(a.id, file);
-    }
-    setPlaying(false);
-    history.current = new History();
-    const restored = validateProject(p);
-    projectRef.current = restored;
-    setProject(restored);
-    setDraft(undefined);
-    setRevision((v) => v + 1);
-    setSelected([]);
-    setTime(0);
-    setActiveTrack(p.tracks.find((t) => t.kind === 'visual')?.id ?? '');
-    if (p.assets.some((a) => !files.has(a.id))) notify('누락 원본을 다시 가져와 재연결하세요.');
+    await switchProject(async () => p);
   }
   async function copyProject(backup = false) {
     const p = projectRef.current;
+    const copy = {
+      ...structuredClone(p),
+      id: id(),
+      name: p.name + (backup ? ' 복구 지점 ' + new Date().toLocaleTimeString('ko-KR') : ' 복사본'),
+    };
     try {
-      await saveProject(p);
-      const copy = {
-        ...structuredClone(p),
-        id: id(),
-        name: `${p.name} ${backup ? '복구 지점 ' + new Date().toLocaleTimeString('ko-KR') : '복사본'}`,
-      };
-      await saveProject(copy);
-      if (!backup) await activateProject(copy);
-      else await saveProject(p);
+      if (backup) await saveProject(copy, false);
+      else await activateProject(copy);
       notify(
         backup
           ? '복구 지점을 저장했습니다. 최근 프로젝트에서 열 수 있습니다.'
@@ -725,6 +789,7 @@ export default function App() {
     if (processing || !project.clips.length) return;
     const p = structuredClone(projectRef.current),
       at = timeRef.current;
+    const editAtStart = editGeneration.current;
     const abort = new AbortController();
     taskAbort.current = abort;
     setPlaying(false);
@@ -771,7 +836,7 @@ export default function App() {
           notify('출력에 들리는 오디오가 없습니다.');
           return;
         }
-        if (JSON.stringify(projectRef.current) === JSON.stringify(p)) {
+        if (editGeneration.current === editAtStart && projectRef.current.id === p.id) {
           const gain = Math.min(4, ((p.masterVolume ?? 1) * 0.95) / result.peak);
           commit({ ...projectRef.current, masterVolume: gain });
           notify(
@@ -923,10 +988,7 @@ export default function App() {
               <button
                 onClick={() => {
                   setProjectMenu(false);
-                  setPlaying(false);
-                  commit(emptyProject());
-                  setSelected([]);
-                  setTime(0);
+                  void switchProject(async () => emptyProject()).catch(() => {});
                 }}
               >
                 <Plus size={15} /> 새 프로젝트
@@ -1065,7 +1127,9 @@ export default function App() {
                     <p>
                       {startupCaps.mp4
                         ? `MP4 가능${startupCaps.aacFallback ? ' · 로컬 AAC 대체 인코더' : ''}`
-                        : 'MP4 영상 인코더 미지원'}{' '}
+                        : startupCaps.avc
+                          ? 'MP4 AAC 인코더 사용 불가'
+                          : 'MP4 영상 인코더 미지원'}{' '}
                       · {startupCaps.webm ? 'WebM 가능' : 'WebM 미지원'} · WAV
                       {startupCaps.mp3 ? ' · MP3' : ''}
                     </p>
@@ -1076,6 +1140,12 @@ export default function App() {
                     <p>
                       원본은 업로드하지 않습니다. WebM으로 완성하거나 H.264 인코딩을 지원하는
                       Chrome/Edge 환경에서 같은 프로젝트를 여세요.
+                    </p>
+                  ) : null}
+                  {startupCaps?.errors && Object.keys(startupCaps.errors).length ? (
+                    <p>
+                      일부 인코더 모듈을 불러오지 못했습니다. WAV와 사용 가능한 형식은 별도로 출력할
+                      수 있습니다.
                     </p>
                   ) : null}
                 </div>
@@ -1496,10 +1566,17 @@ export default function App() {
           <ExportDialog
             project={project}
             range={project.workRange}
-            onProjectChange={commit}
             onClose={() => setExportOpen(false)}
           />
         </Suspense>
+      ) : null}
+      {switching || !ready ? (
+        <div className="modal-backdrop" role="status" aria-live="polite">
+          <div className="help-dialog">
+            <LoaderCircle className="spin" />{' '}
+            {ready ? '현재 작업 저장 · 프로젝트 전환 중' : '최근 프로젝트 복구 중'}
+          </div>
+        </div>
       ) : null}
       {recentOpen ? (
         <RecentProjects close={() => setRecentOpen(false)} open={activateProject} notify={notify} />

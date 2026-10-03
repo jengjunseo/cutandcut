@@ -112,7 +112,7 @@ export function markRange(p: Project, time: number, edge: 'start' | 'end') {
   return { ...p, workRange: { start, end } };
 }
 /** Remove a gap on the active track across every track, splitting crossing clips rather than desynchronizing them. */
-export function deleteGap(p: Project, time: number, trackId: string) {
+export function gapRange(p: Project, time: number, trackId: string) {
   const clips = p.clips.filter((c) => c.trackId === trackId);
   if (!clips.length || clips.some((c) => c.start <= time && c.start + c.duration > time))
     return { project: p, error: '활성 트랙의 빈 구간에 재생헤드를 놓으세요.' };
@@ -132,6 +132,16 @@ export function deleteGap(p: Project, time: number, trackId: string) {
       project: p,
       error: '전체 트랙에 영향을 줍니다. 영향을 받는 잠긴 트랙을 먼저 해제하세요.',
     };
+  return { project: p, start, end };
+}
+export function deleteGap(
+  p: Project,
+  time: number,
+  trackId: string,
+): { project: Project; error?: string } {
+  const range = gapRange(p, time, trackId);
+  if (range.error) return range;
+  const { start, end } = range as { start: number; end: number };
   const rightLinks = new Map<string, string>(),
     result: Project = { ...structuredClone(p), clips: [] };
   for (const c of structuredClone(p.clips)) {

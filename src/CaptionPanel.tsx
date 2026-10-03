@@ -18,15 +18,22 @@ export default function CaptionPanel({
   notify: (s: string) => void;
 }) {
   const latest = useRef(p);
+  const [exportScope, setExportScope] = useState('captions');
   latest.current = p;
   const input = useRef<HTMLInputElement>(null),
     captions = p.clips.filter((c) => c.kind === 'text').sort((a, b) => a.start - b.start),
     style = captions.find((c) => selected.includes(c.id))?.text;
+  const output = captions.filter(
+    (c) =>
+      exportScope === 'all' ||
+      (exportScope === 'selected' ? selected.includes(c.id) : c.textRole === 'caption'),
+  );
   return (
     <div className="caption-panel">
       <h2>자막 · 텍스트 목록</h2>
       <p className="small-note">
-        한글 입력을 마친 뒤 포커스를 옮기면 저장됩니다. 텍스트 클립 전체를 SRT/VTT로 내보냅니다.
+        한글 입력을 마친 뒤 포커스를 옮기면 저장됩니다. 기본 출력 대상은 자막입니다. 이전 프로젝트의
+        미분류 텍스트는 역할을 지정하거나 전체 출력을 선택하세요.
       </p>
       <button className="secondary full" onClick={() => input.current?.click()}>
         SRT / VTT 가져오기
@@ -55,15 +62,27 @@ export default function CaptionPanel({
           e.target.value = '';
         }}
       />
+      <label>
+        자막 파일 출력 대상
+        <select
+          aria-label="자막 파일 출력 대상"
+          value={exportScope}
+          onChange={(e) => setExportScope(e.target.value)}
+        >
+          <option value="captions">자막만</option>
+          <option value="selected">선택한 텍스트</option>
+          <option value="all">모든 텍스트 · 제목 포함</option>
+        </select>
+      </label>
       <div className="two-fields">
         {(['srt', 'vtt'] as const).map((format) => (
           <button
             key={format}
             className="secondary"
-            disabled={!captions.length}
+            disabled={!output.length}
             onClick={() =>
               download(
-                new Blob([serializeCaptions(captions, format)], {
+                new Blob([serializeCaptions(output, format)], {
                   type: 'text/plain;charset=utf-8',
                 }),
                 `${p.name}.${format}`,
@@ -153,6 +172,20 @@ function CaptionRow({
       <button className="text-tool" onClick={select} aria-pressed={selected}>
         {c.name} · 해당 장면 보기
       </button>
+      <label>
+        역할
+        <select
+          aria-label={`${c.name} 텍스트 역할`}
+          value={c.textRole ?? 'unclassified'}
+          onChange={(e) => save({ textRole: e.target.value as 'title' | 'caption' })}
+        >
+          <option value="unclassified" disabled>
+            미분류
+          </option>
+          <option value="caption">자막</option>
+          <option value="title">제목 · 장식</option>
+        </select>
+      </label>
       <textarea
         aria-label={`${c.name} 목록 내용`}
         value={text}

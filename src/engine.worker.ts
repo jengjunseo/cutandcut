@@ -8,13 +8,13 @@ import {
   CanvasSource,
   AudioSampleSource,
   AudioSample,
-  canEncodeAudio,
-  canEncodeVideo,
   type VideoCodec,
   type AudioCodec,
 } from 'mediabunny';
 import { probe, waveform, MediaPool, AudioMixer } from './media';
 import { Renderer } from './render';
+import { capabilities } from './codecs';
+import { exportBudget, EXPORT_MAX_BYTES } from './export-policy';
 import {
   duration,
   seconds,
@@ -139,34 +139,6 @@ async function preview() {
     rendering = false;
   }
 }
-async function capabilities(p: Project, bitrate: number) {
-  const options = { width: p.width, height: p.height, frameRate: p.fps, bitrate };
-  const { registerMp3Encoder } = await import('@mediabunny/mp3-encoder');
-  registerMp3Encoder();
-  const [avc, vp9, vp8, nativeAac, opus, mp3] = await Promise.all([
-    canEncodeVideo('avc', options),
-    canEncodeVideo('vp9', options),
-    canEncodeVideo('vp8', options),
-    canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48000, bitrate: 192000 }),
-    canEncodeAudio('opus', { numberOfChannels: 2, sampleRate: 48000, bitrate: 192000 }),
-    canEncodeAudio('mp3', { numberOfChannels: 2, sampleRate: 48000, bitrate: 192000 }),
-  ]);
-  let aac = nativeAac;
-  if (!aac) {
-    const { registerAacEncoder } = await import('@mediabunny/aac-encoder');
-    registerAacEncoder();
-    aac = await canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: 48000, bitrate: 192000 });
-  }
-  return {
-    mp4: avc && aac,
-    webm: (vp9 || vp8) && opus,
-    wav: true,
-    mp3,
-    vp9,
-    avc,
-    aacFallback: !nativeAac && aac,
-  };
-}
 async function exportProject(
   raw: Project,
   format: 'mp4' | 'webm' | 'wav' | 'mp3',
@@ -186,17 +158,16 @@ async function exportProject(
     throw new Error('출력 범위가 올바르지 않습니다.');
   const length = seconds(to - from);
   if (length <= 0) throw new Error('내보낼 클립을 추가하세요.');
-  if (length > 300)
-    throw new Error('현재 로컬 내보내기는 메모리 보호를 위해 5분 이하로 제한합니다.');
-  if (
-    length * (format === 'wav' ? 48000 * 4 : format === 'mp3' ? 192000 / 8 : bitrate / 8) >
-    256 * 1024 * 1024
-  )
-    throw new Error('예상 출력이 256MB를 초과합니다. 비트레이트나 길이를 줄이세요.');
-  const caps = await capabilities(p, bitrate);
+  const budget = exportBudget(format, length, p.fps, bitrate);
+  if (!budget.allowed)
+    throw new Error(
+      '현재 설정의 출력 길이·256MiB 제한을 초과합니다. 범위나 비트레이트를 줄이세요.',
+    );
+  const caps = await capabilities(p, bitrate, format);
   if (!caps[format])
     throw new Error(
-      '선택한 해상도·FPS·코덱의 인코더를 사용할 수 없습니다. WebM 또는 WAV를 선택하세요.',
+      caps.errors?.[format] ??
+        '선택한 해상도·FPS·코덱의 인코더를 사용할 수 없습니다. WebM 또는 WAV를 선택하세요.',
     );
   let output: Output | undefined;
   let visual: Renderer | undefined;
@@ -298,6 +269,8 @@ async function exportProject(
     scope.postMessage({ type: 'progress', stage: '컨테이너 마무리', progress: 1 });
     await output.finalize();
     const buffer = target.buffer!;
+    if (buffer.byteLength >= EXPORT_MAX_BYTES)
+      throw new Error('실제 출력이 256MiB를 초과했습니다. 범위나 비트레이트를 줄이세요.');
     scope.postMessage(
       {
         type: 'complete',

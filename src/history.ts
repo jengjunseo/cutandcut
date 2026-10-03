@@ -1,9 +1,21 @@
 import type { Project } from './model';
+/** Share unchanged branches; avoid serializing thumbnails and waveforms on every edit. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  const left = a as Record<string, unknown>,
+    right = b as Record<string, unknown>;
+  const keys = Object.keys(left).filter((key) => left[key] !== undefined);
+  return (
+    keys.length === Object.keys(right).filter((key) => right[key] !== undefined).length &&
+    keys.every((key) => Object.hasOwn(right, key) && sameValue(left[key], right[key]))
+  );
+}
 export class History {
   past: Project[] = [];
   future: Project[] = [];
   commit(current: Project, next: Project) {
-    if (current === next || JSON.stringify(current) === JSON.stringify(next)) return current;
+    if (sameValue(current, next)) return current;
     this.past.push(current);
     if (this.past.length > 80) this.past.shift();
     this.future = [];

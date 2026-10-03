@@ -2499,3 +2499,9 @@ a {
     min-height: 44px;
   }
 }
+.gap-impact {
+  max-height: 250px;
+  overflow: auto;
+  padding-left: 24px;
+  font-size: 13px;
+}

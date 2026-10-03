@@ -62,12 +62,13 @@ async function read<T>(store: string, key: string): Promise<T | undefined> {
     r.onerror = () => reject(r.error);
   });
 }
-export async function saveProject(p: Project) {
+export async function saveProject(p: Project, recent = true) {
+  const valid = validateProject(p);
   const d = await db();
   await new Promise<void>((resolve, reject) => {
     const tx = d.transaction(['project', 'projects'], 'readwrite');
-    tx.objectStore('project').put(p, 'recent');
-    tx.objectStore('projects').put({ project: p, updatedAt: Date.now() }, p.id);
+    if (recent) tx.objectStore('project').put(valid, 'recent');
+    tx.objectStore('projects').put({ project: valid, updatedAt: Date.now() }, valid.id);
     tx.oncomplete = () => resolve();
     tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('프로젝트 저장 실패'));
   });

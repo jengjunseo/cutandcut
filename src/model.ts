@@ -1,4 +1,11 @@
 export const SECOND = 1_000_000;
+export const PROJECT_MAX_TIME = 3600 * SECOND;
+export function projectLimitError(p: Project): string | undefined {
+  if (p.clips.length > 10000 || p.assets.length > 1000)
+    return '프로젝트는 클립 10,000개·원본 1,000개까지 지원합니다.';
+  if (duration(p) > PROJECT_MAX_TIME || (p.workRange?.end ?? 0) > PROJECT_MAX_TIME)
+    return '프로젝트 타임라인은 60분까지입니다. 원본 구간이나 배치 위치를 줄이세요. 출력 제한은 별도로 적용됩니다.';
+}
 export const tick = (seconds: number) => Math.round(seconds * SECOND);
 export const seconds = (time: number) => time / SECOND;
 export const frameTick = (frame: number, fps: number) => Math.round((frame * SECOND) / fps);
@@ -62,6 +69,7 @@ export type Clip = {
   fadeOut: number;
   transition?: Transition;
   text?: TextStyle;
+  textRole?: 'title' | 'caption';
 };
 export type Track = {
   id: string;
@@ -629,6 +637,7 @@ export function validateProject(value: unknown): Project {
     )
       fail();
     clips.add(c.id);
+    if (c.textRole !== undefined && !['title', 'caption'].includes(c.textRole)) fail();
     if (c.groupId !== undefined && typeof c.groupId !== 'string') fail();
     if (c.speed !== undefined && (!Number.isFinite(c.speed) || c.speed < 0.5 || c.speed > 2))
       fail();
@@ -722,7 +731,7 @@ export function validateProject(value: unknown): Project {
       !Number.isSafeInteger(p.workRange.end) ||
       p.workRange.start < 0 ||
       p.workRange.end < p.workRange.start ||
-      p.workRange.end > tick(3600))
+      p.workRange.end > PROJECT_MAX_TIME)
   )
     fail();
   if (
@@ -731,6 +740,7 @@ export function validateProject(value: unknown): Project {
   )
     fail();
   if (p.safeArea !== undefined && typeof p.safeArea !== 'boolean') fail();
-  if (p.clips.length > 10000 || p.assets.length > 1000 || duration(p) > tick(3600)) fail();
+  const limitError = projectLimitError(p);
+  if (limitError) throw new Error(limitError);
   return structuredClone(p);
 }

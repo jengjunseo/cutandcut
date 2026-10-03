@@ -13,20 +13,19 @@ import { checkCapabilities, createEngine, files, type Capabilities } from './eng
 import { download } from './storage';
 import { Field, IconButton, formatBytes } from './ui';
 import { ratioOf, setRatio, ratios } from './Inspector';
+import { exportBudget } from './export-policy';
 type Props = {
   project: Project;
   onClose: () => void;
-  onProjectChange: (p: Project) => void;
   range?: { start: number; end: number };
 };
-export default function ExportDialog({ project, onClose, onProjectChange, range }: Props) {
+export default function ExportDialog({ project, onClose, range }: Props) {
   const [snapshot, setSnapshot] = useState(() => structuredClone(project));
   const [settingsOpen, setSettingsOpen] = useState(false),
     [useRange, setUseRange] = useState(false),
     [largePlayer, setLargePlayer] = useState(false);
   function settings(p: Project) {
     setSnapshot(p);
-    onProjectChange(p);
   }
   const [format, setFormat] = useState<'mp4' | 'webm' | 'wav' | 'mp3'>('mp4'),
     [quality, setQuality] = useState('standard'),
@@ -78,9 +77,8 @@ export default function ExportDialog({ project, onClose, onProjectChange, range 
       return clips.some((c, i) => i > 0 && c.start < clips[i - 1].start + clips[i - 1].duration);
     });
   const length = seconds(to - from);
-  const estimate =
-    length *
-    (format === 'wav' ? 48000 * 4 : format === 'mp3' ? 192000 / 8 : (bitrate * 1e6 + 192000) / 8);
+  const budget = exportBudget(format, length, snapshot.fps, bitrate * 1e6);
+  const estimate = budget.estimate;
   useEffect(() => {
     let active = true;
     setCaps(null);
@@ -101,7 +99,7 @@ export default function ExportDialog({ project, onClose, onProjectChange, range 
     return () => {
       active = false;
     };
-  }, [snapshot, bitrate]);
+  }, [snapshot.width, snapshot.height, snapshot.fps, bitrate]);
   useEffect(() => {
     const old = document.activeElement as HTMLElement;
     dialog.current?.focus();
@@ -111,13 +109,13 @@ export default function ExportDialog({ project, onClose, onProjectChange, range 
     };
   }, []);
   function start() {
+    if (worker.current || !canExport) return;
     setStatus('running');
     setError('');
     setBlob(null);
     setAudioStats(undefined);
     setProgress(0);
     setStage('엔진 시작');
-    worker.current?.terminate();
     const w = createEngine();
     worker.current = w;
     const gen = ++generation.current;
@@ -185,12 +183,7 @@ export default function ExportDialog({ project, onClose, onProjectChange, range 
     setOutputUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [blob]);
-  const canExport =
-    !!caps?.[format] &&
-    !missing.length &&
-    length > 0 &&
-    length <= 300 &&
-    estimate < 256 * 1024 * 1024;
+  const canExport = !!caps?.[format] && !missing.length && budget.allowed;
   return (
     <div
       className="modal-backdrop"
@@ -262,7 +255,7 @@ export default function ExportDialog({ project, onClose, onProjectChange, range 
           <>
             {settingsOpen ? (
               <fieldset className="export-settings">
-                <legend>프로젝트 캔버스와 출력에 함께 적용</legend>
+                <legend>이번 출력에만 적용 · 편집 프로젝트는 유지</legend>
                 <Field label="출력 화면 비율">
                   <select
                     value={ratioOf(snapshot)}
@@ -395,8 +388,10 @@ export default function ExportDialog({ project, onClose, onProjectChange, range 
               </>
             ) : null}
             <p className="export-note">
-              예상 파일 크기 약 {formatBytes(estimate)}. 출력 설정 변경은 프로젝트 캔버스에도
-              적용됩니다. 실제 인코더를 확인한 형식만 선택할 수 있습니다.
+              예상 파일 크기 약 {formatBytes(estimate)}. 현재 설정 최대 길이{' '}
+              {Math.floor(budget.maxSeconds / 60)}분 {Math.floor(budget.maxSeconds % 60)}초
+              (5분·256MiB 중 먼저 도달하는 제한). 출력 설정은 이번 파일에만 적용됩니다. 프로젝트
+              타임라인은 60분까지입니다.
             </p>
             {caps?.aacFallback && format === 'mp4' ? (
               <p className="export-note">
@@ -404,6 +399,13 @@ export default function ExportDialog({ project, onClose, onProjectChange, range 
                 않습니다.
               </p>
             ) : null}
+            {caps?.errors &&
+              Object.entries(caps.errors).map(([key, value]) => (
+                <p className="export-note" key={key}>
+                  {key.toUpperCase()} 인코더 확인 실패: {value}. 다른 형식은 별도로 사용할 수
+                  있습니다.
+                </p>
+              ))}
             {estimate >= 256 * 1024 * 1024 ? (
               <p className="warning">
                 예상 파일이 256MB 제한을 초과합니다. 범위나 비트레이트를 줄이세요.

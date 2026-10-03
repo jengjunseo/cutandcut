@@ -1,5 +1,7 @@
 import EngineWorker from './engine.worker?worker';
 import type { Asset, Project } from './model';
+import type { Capabilities } from './codecs';
+export type { Capabilities } from './codecs';
 export const files = new Map<string, File>();
 let requestId = 0;
 export function createEngine() {
@@ -45,8 +47,8 @@ export function request<T>(
     const job: Job = {
       type,
       run: () => {
-        const worker = createEngine(),
-          rid = ++requestId;
+        let worker: Worker | undefined;
+        const rid = ++requestId;
         let settled = false;
         const timer = setTimeout(
           () =>
@@ -62,7 +64,7 @@ export function request<T>(
           settled = true;
           clearTimeout(timer);
           signal?.removeEventListener('abort', cancel);
-          worker.terminate();
+          worker?.terminate();
           active--;
           if (type === 'waveform') activeWaveforms--;
           if (error) reject(error);
@@ -70,13 +72,18 @@ export function request<T>(
           pump();
         }
         abort = () => finish(new DOMException('작업을 취소했습니다.', 'AbortError'));
-        worker.onmessage = (event) => {
-          if (event.data.requestId !== rid) return;
-          if (event.data.type === 'error') finish(new Error(event.data.error));
-          else finish(undefined, event.data.asset ?? event.data.peaks ?? event.data.value);
-        };
-        worker.onerror = (e) => finish(new Error(e.message));
-        worker.postMessage({ type, requestId: rid, ...data });
+        try {
+          worker = createEngine();
+          worker.onmessage = (event) => {
+            if (event.data.requestId !== rid) return;
+            if (event.data.type === 'error') finish(new Error(event.data.error));
+            else finish(undefined, event.data.asset ?? event.data.peaks ?? event.data.value);
+          };
+          worker.onerror = (e) => finish(new Error(e.message));
+          worker.postMessage({ type, requestId: rid, ...data });
+        } catch (e) {
+          finish(e instanceof Error ? e : new Error(String(e)));
+        }
       },
     };
     jobs.push(job);
@@ -86,15 +93,6 @@ export function request<T>(
 }
 export const inspect = (file: File, signal?: AbortSignal) =>
   request<Asset>('probe', { file }, signal);
-export type Capabilities = {
-  mp4: boolean;
-  webm: boolean;
-  wav: boolean;
-  mp3: boolean;
-  vp9: boolean;
-  aacFallback?: boolean;
-  avc?: boolean;
-};
 const capabilityCache = new Map<string, Promise<Capabilities>>();
 export function checkCapabilities(project: Project, bitrate: number) {
   const key = `${project.width}:${project.height}:${project.fps}:${bitrate}`;
@@ -102,10 +100,18 @@ export function checkCapabilities(project: Project, bitrate: number) {
     if (capabilityCache.size >= 12) capabilityCache.delete(capabilityCache.keys().next().value!);
     capabilityCache.set(
       key,
-      request<Capabilities>('capabilities', { project, bitrate }).catch((e) => {
-        capabilityCache.delete(key);
-        throw e;
-      }),
+      request<Capabilities>('capabilities', {
+        project: { width: project.width, height: project.height, fps: project.fps },
+        bitrate,
+      })
+        .then((c) => {
+          if (Object.keys(c.errors ?? {}).length) capabilityCache.delete(key);
+          return c;
+        })
+        .catch((e) => {
+          capabilityCache.delete(key);
+          throw e;
+        }),
     );
   }
   return capabilityCache.get(key)!;

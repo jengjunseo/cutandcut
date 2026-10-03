@@ -9,6 +9,7 @@ import {
   linked,
   editable,
   id,
+  PROJECT_MAX_TIME,
   type Clip,
   type Project,
 } from './model';
@@ -116,7 +117,7 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                     <NumberInput
                       value={seconds(c.start)}
                       min={0}
-                      max={300}
+                      max={seconds(PROJECT_MAX_TIME)}
                       onCommit={(v) => commit(move(p, [c.id], tick(v) - c.start))}
                     />
                   </Field>
@@ -124,7 +125,7 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                     <NumberInput
                       value={seconds(c.duration)}
                       min={1 / p.fps}
-                      max={300}
+                      max={seconds(PROJECT_MAX_TIME)}
                       onCommit={(v) => commit(trim(p, [c.id], 'end', tick(v) - c.duration))}
                     />
                   </Field>
@@ -642,8 +643,8 @@ export function NumberInput({
   useEffect(() => setDraft(String(Math.round(value * 100) / 100)), [value]);
   const apply = () => {
     const n = Number(draft);
+    setDraft(String(Math.round(value * 100) / 100));
     if (draft !== '' && Number.isFinite(n)) onCommit(Math.max(min, Math.min(max, n)));
-    else setDraft(String(value));
   };
   return (
     <input

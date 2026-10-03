@@ -86,6 +86,7 @@ export function addCaptions(p: Project, cues: Cue[]) {
     next.clips.push({
       id: id(),
       kind: 'text',
+      textRole: 'caption',
       name: '자막',
       trackId: layer.track.id,
       start: cue.start,

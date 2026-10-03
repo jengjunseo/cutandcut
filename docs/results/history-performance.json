@@ -1,0 +1,11 @@
+{
+  "runtime": "v24.12.0",
+  "assets": 64,
+  "thumbnailCharacters": 16000,
+  "iterations": 200,
+  "serializationMs": 477.82570000000004,
+  "branchComparisonMs": 0.6623000000000729,
+  "oldCapabilityPayloadBytes": 1025848,
+  "newCapabilityPayloadBytes": 36,
+  "scope": "Synthetic shared-asset History equality and capability payload only; not complete editor latency"
+}

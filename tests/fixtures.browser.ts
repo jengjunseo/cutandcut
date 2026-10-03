@@ -92,6 +92,25 @@ export async function makeFixtures() {
   });
   return result;
 }
+/** One real encoded frame with a 61-minute duration; no huge frame/PCM allocation. */
+export async function makeLongFixture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 180;
+  const target = new BufferTarget(),
+    output = new Output({ target, format: new Mp4OutputFormat() });
+  const video = new CanvasSource(canvas, { codec: 'avc', bitrate: 350000 });
+  output.addVideoTrack(video, { frameRate: 30 });
+  await output.start();
+  await video.add(0, 3660);
+  video.close();
+  await output.finalize();
+  return {
+    name: '61-minutes.mp4',
+    mimeType: 'video/mp4',
+    bytes: Array.from(new Uint8Array(target.buffer!)),
+  };
+}
 export async function makeCompatibilityFixtures() {
   const base = await makeFixtures();
   const { registerMp3Encoder } = await import('@mediabunny/mp3-encoder');
