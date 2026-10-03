@@ -65,7 +65,7 @@ npm run test:e2e
 
 | 출력 | 인코더·muxer | 검증 해상도 |
 |---|---|---|
-| MP4 | 브라우저 H.264 + 네이티브 또는 WASM AAC / Mediabunny MP4 | 1280×720, 720×1280, 1920×1080; AAC 미지원 주입 시 1280×720 대체 출력 |
+| MP4 | 브라우저 H.264 + 네이티브 또는 WASM AAC / Mediabunny MP4 | 1280×720, 720×1280, 1920×1080; 배포본 AAC 미지원 주입 시 1280×720·720×1280 대체 출력 |
 | WebM | 브라우저 VP9 + Opus / Mediabunny WebM | 1280×720, 720×1280 |
 | MP3 | 별도 LAME WASM 인코더 / Mediabunny MP3 | 48kHz · 스테레오 · 192kbps |
 | WAV | PCM s16 / Mediabunny WAVE | 48kHz · 스테레오 |

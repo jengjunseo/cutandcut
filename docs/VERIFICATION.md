@@ -15,6 +15,22 @@ Windows / Google Chrome 154.0.8037.93 / Node.js 24.12.0. TypeScript strict·Vite
 
 최근 기본 편집 시나리오의 출력은 MP4 16:9/9:16 **6.016초**, WebM **6.000초**, WAV **6.000초**, MP3 **6.024초**였다. 타임라인 6.000초와 컨테이너 인코더 패딩을 구분한다. 출력과 공통 합성기의 픽셀 차이 및 오디오 검사 원문은 [editing-audit.json](results/editing-audit.json)에 보관한다. 구현 범위와 아직 없는 색 보정·키프레임·프록시는 [감사 대응](AUDIT_RESPONSE.md)와 [README](../README.md)에 명시했다.
 
+### 감사 수정 배포본 · 2026-10-03
+
+코드 커밋 `44e4749b5818a1bb7c977c1f5b97c33ea27c8442`를 [운영 사이트](https://cutandcut.vercel.app)에 배포했다. Vercel에서 production/Ready와 운영 도메인 연결을 확인했다. 고정 배포 주소는 [cutandcut-c7h7mey0g](https://cutandcut-c7h7mey0g-wondaes-projects-fe5c826b.vercel.app)다.
+
+같은 Windows/Chrome에서 운영 사이트에 실제 MP4 두 개·PNG·WAV를 가져오고, 한글 두 줄을 합성했다. 가로 MP4, 세로 MP4, 세로 WebM, WAV, MP3를 각각 생성·다운로드하여 별도 demux/오디오 디코딩으로 검사했다. 영상은 결과 플레이어에서 실제 재생했으며 세로 미리보기 표시 너비가 양수인지도 확인했다. 네이티브 경로와 Worker의 AAC 지원만 false로 주입한 대체 경로를 각각 실행해 **2개 배포 시나리오가 통과**했다. 각 실행은 약 1.3분이었다.
+
+| 결과 | 네이티브 경로 | AAC 미지원 주입 경로 |
+|---|---|---|
+| 가로 MP4 | AVC/AAC · 1280×720 · 6.016초 | AVC/AAC · 1280×720 · 6.037333초 |
+| 세로 MP4 | AVC/AAC · 720×1280 · 6.016초 | AVC/AAC · 720×1280 · 6.037333초 |
+| 세로 WebM | VP9/Opus · 720×1280 · 6.020초 | 동일 |
+| WAV | PCM s16 · 1,152,044바이트 | 동일 |
+| MP3 | MP3 · 144,744바이트 | 동일 |
+
+각 경로의 다섯 결과에서 오디오 에너지를 확인했고 브라우저 예외는 0개였다. 네이티브/대체 AAC의 파일 끝 패딩 차이를 포함한 수치이며, 모든 OS의 지원 보장은 아니다. H.264 인코더가 없는 환경까지 대체하는 검사는 아니다. 원문: [production-audit.json](results/production-audit.json), [production-aac-fallback.json](results/production-aac-fallback.json).
+
 ## 초기 구현 검증 · 2026-10-02
 
 검증일: 2026-10-02. Windows, Google Chrome 154.0.8037.93, Node.js 24.12.0. 테스트는 설치된 Chrome의 네이티브 WebCodecs 디코더·인코더와 실제 파일을 사용한다. 다른 OS·브라우저에서 동일한 코덱 사용을 보장하는 기록은 아니다.
@@ -80,3 +96,5 @@ npm run build
 ```
 
 배포 시나리오만 검사하려면 PowerShell에서 `$env:PRODUCTION_URL='https://cutandcut.vercel.app'` 설정 후 `npm run test:e2e -- --grep 'production bundle'`을 실행한다. localhost:5174 서버는 파일 생성·검증 도우미로 함께 필요하다. `artifacts/`에는 실제 출력 파일과 스크린샷이 생성된다. 저장소에는 개인정보 없는 작은 수치 기록만 `docs/results/`로 보관한다.
+
+AAC 대체 경로는 같은 명령 전에 `$env:FORCE_AAC_FALLBACK='1'`을 설정해 검사한다. 네이티브 경로로 돌아가려면 이 값을 `'0'`으로 바꾼다. 이 플래그는 Playwright의 Worker 응답 주입에만 사용되며 제품의 실제 지원 검사 코드를 변경하지 않는다.
