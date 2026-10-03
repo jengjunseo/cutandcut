@@ -14,6 +14,12 @@
 
 캡처와 수치는 로컬 `artifacts/polish/`에 있고 커밋하지 않는다. 스크린리더, 다른 브라우저/OS, 200% 확대 전 범위와 대규모 장시간 편집은 추가 검증 대상이다.
 
+### UI polish 운영 배포
+
+코드 커밋 `05a16cce7e57a1b4fff215f0f2c248fb749a3f9c`의 GitHub main 연동 배포를 확인했다. 고정 주소는 [cutandcut-hmk73z7tn](https://cutandcut-hmk73z7tn-wondaes-projects-fe5c826b.vercel.app), 운영 도메인은 [cutandcut.vercel.app](https://cutandcut.vercel.app)다. Vercel production/Ready, 커밋 메타데이터와 공개 도메인 연결을 확인했다. Vite 원격 빌드는 22초였다. CLI의 별도 배포 요청은 `Not authorized`로 새 배포를 만들지 못했고, 기존 Git 연동으로 생성된 위 배포를 채택했다. 인증/배포 보호 설정은 변경하지 않았다.
+
+같은 Chrome의 운영 번들에서 실제 MP4 두 개·PNG·WAV 가져오기와 한글 합성, 네이티브 가로/세로 MP4·세로 WebM·WAV·MP3 생성/다운로드/디코딩 **1개 시나리오**가 통과했다 (1.3분). MP4는 AVC/AAC 1280×720·720×1280, 6.016초이고 WebM은 VP9/Opus 720×1280, 6.020초다. WAV는 PCM s16, MP3는 MP3이며 다섯 파일 모두 오디오 에너지가 있다. 브라우저 예외는 0개였다. 결과와 크기는 [production-polish.json](results/production-polish.json)에 보관한다. UI 상태·기능 회귀 검사와 다른 브라우저 지원 보장을 구분한다.
+
 ## 통합 품질 패스 · 2026-10-03
 
 Windows / Google Chrome 154.0.8037.93 / Node.js 24.12.0. 모델 테스트 **28개**, 전체 로컬 통합 **18개**가 통과했다 (배포용 1개는 운영 URL을 지정하는 별도 검사). 마지막 시간 입력 수정 후 60분 경계·10분 텍스트 저장/재열기와 모바일 세로 미리보기 2개, 기본 실제 컷편집·출력·복구 1개를 다시 통과했다. 마지막 파형 취소 수정은 품질 시나리오 **7개**를 재실행해 통과했다. TypeScript strict와 Vite 빌드도 통과했다. 저장소에는 별도 ESLint 설정/명령이 없으며 수정 파일의 Prettier 포맷을 검사했다. 프로덕션 의존성 취약점은 0개였다.
