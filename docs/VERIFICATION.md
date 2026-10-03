@@ -14,6 +14,14 @@ Windows / Google Chrome 154.0.8037.93 / Node.js 24.12.0. 모델 테스트 **28�
 
 성능 비교는 썸네일 16,000자짜리 자산 64개를 공유하는 200회 이름 변경의 비교 비용만 측정했다. 기존 전체 JSON 비교 **477.83ms**, 변경 후 공유 브랜치 비교 **0.66ms**였다. 같은 합성 프로젝트의 지원 검사 메시지는 **1,025,848자에서 36자**로 줄었다. 런타임·측정 범위·재현 명령은 [수치](results/history-performance.json)와 [QUALITY_PASS.md](QUALITY_PASS.md)에 있다. 전체 UI 지연·장시간 메모리 수치로 해석하지 않는다.
 
+### 품질 패스 운영 배포 검증
+
+코드 커밋 `a07246b063f350e29806f8abe89ea88ea2a2b639`를 [운영 사이트](https://cutandcut.vercel.app)에 배포했다. Vercel production/Ready와 운영 도메인 연결을 확인했다. 고정 배포는 [cutandcut-alhvunbx3](https://cutandcut-alhvunbx3-wondaes-projects-fe5c826b.vercel.app)다.
+
+같은 Chrome에서 배포 화면의 실제 MP4 두 개·PNG·WAV 가져오기, 한글 두 줄 합성, 가로/세로 MP4·세로 WebM·WAV·MP3 생성과 다운로드를 검사했다. 결과 플레이어 재생과 별도 demux/오디오 디코딩을 포함한다. 네이티브와 AAC 지원 false 주입의 **2개 운영 시나리오가 각각 약 1.3분에 통과**했다.
+
+네이티브 MP4는 AVC/AAC 1280×720·720×1280 및 6.016초, AAC 대체 MP4는 같은 코덱/해상도 및 6.037333초다. 세로 WebM은 VP9/Opus·720×1280·6.020초였다. 두 경로의 다섯 출력 모두 오디오 에너지가 있고 브라우저 예외는 0개였다. WAV는 PCM s16, MP3는 MP3로 읽혔다. 인코더 패딩과 편집 길이를 구분하며, 다른 OS/브라우저 지원으로 확대 해석하지 않는다. [네이티브 결과](results/production-quality.json), [AAC 대체 결과](results/production-quality-aac-fallback.json).
+
 ## 최신 감사 수정 검증 · 2026-10-03
 
 Windows / Google Chrome 154.0.8037.93 / Node.js 24.12.0. TypeScript strict·Vite 프로덕션 빌드, 편집 모델 25개, 로컬 Chrome 통합 시나리오 12개를 검증했다. 배포 번들 검증은 아래 별도 기록으로 관리한다. 모바일 검사는 뷰포트·터치 포인터를 에뮬레이션한 것으로 모바일 OS 실기기 지원 검증과 구분한다. 프로덕션 의존성 `npm audit --omit=dev` 결과 취약점 0개.
