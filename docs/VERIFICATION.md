@@ -12,6 +12,14 @@
 
 성능 프로파일 없이 전체 지연 향상을 주장하지 않는다. 다른 OS/브라우저, 장시간 대용량, 스크린리더와 정밀 청취는 별도 검증 대상이며 모든 버그 제거를 보장하지 않는다.
 
+### 리팩터링 운영 배포
+
+코드 커밋 `249780d0a5198b32bb1e9971004b577d1be55233`의 GitHub main 연동 배포가 Vercel production/Ready이고 운영 도메인 연결을 확인했다. 배포 ID는 `dpl_EM2WNUXk1yqPxtJKFVpnZFDWxJsh`, 고정 주소는 [cutandcut-bqxw8513w](https://cutandcut-bqxw8513w-wondaes-projects-fe5c826b.vercel.app), 공개 도메인은 [cutandcut.vercel.app](https://cutandcut.vercel.app)다. 원격 빌드는 21초였다.
+
+같은 Chrome에서 운영 화면의 실제 MP4 두 개·PNG·WAV 가져오기, 한글 합성, 가로/세로 MP4·세로 WebM·WAV·MP3 생성·다운로드·결과 플레이어 재생과 별도 demux/오디오 디코딩을 검사했다. 네이티브 경로 **1개** (1.3분), AAC 미지원 주입의 WASM 대체 경로 **1개** (1.2분)가 각각 통과했다. 두 경로 모두 다섯 파일에 오디오 에너지가 있고 브라우저 예외는 0개다.
+
+네이티브 MP4는 AVC/AAC·1280×720 및 720×1280·6.016초, AAC 대체 MP4는 같은 코덱/해상도·6.037333초다. WebM은 VP9/Opus·720×1280·6.020초, WAV는 PCM s16, MP3는 MP3로 분석됐다. 인코더 패딩을 편집 길이와 구분하며 H.264 없는 환경의 MP4 지원을 의미하지 않는다. [네이티브 결과](results/production-refactor.json), [AAC 대체 결과](results/production-refactor-aac-fallback.json).
+
 ## UX/UI polish · 2026-10-03
 
 편집 기능·엔진·모델·저장 형식은 그대로 유지하고 UI만 정리했다. 문제 평가와 캡처 화면은 [UI_POLISH.md](UI_POLISH.md)에 있다. Windows / Chrome 154.0.8037.93에서 모델 **28개**, 전체 로컬 통합 **25개**가 통과했다 (3.1분, 운영 URL 검사 1개는 별도 실행). 최종 긴 파일명 알림까지 보완한 후 UX 시나리오 **6개**와 실제 컷편집/출력/복구 **1개**, 총 **7개**를 다시 통과했다 (1.3분). TypeScript strict/Vite 프로덕션 빌드도 통과했다 (14.58초). Worker 번들은 이전 코드와 같은 `engine.worker-rDYOlD8k.js`다.
