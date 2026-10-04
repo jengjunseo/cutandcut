@@ -15,7 +15,7 @@ export const shortcuts = [
   ['Z · Delete / Backspace', '일반 삭제 · 빈 공간 유지'],
   ['C · Ctrl/Cmd + C', '연결·그룹 클립 복사'],
   ['Ctrl/Cmd + X', '잘라내기 · 전체 트랙 리플 삭제 후 복사'],
-  ['V · Ctrl/Cmd + V', '복사한 클립을 삽입 · 전체 트랙의 뒤쪽을 이동 *'],
+  ['V · Ctrl/Cmd + V', '자막·텍스트는 레이어에 추가 / 영상·오디오는 시간 삽입 *'],
   ['A / B / R', '복사한 클립을 끝에 추가 / 덮어쓰기 / 선택 클립 교체 *'],
   ['Ctrl/Cmd + D', '선택 해제'],
   ['Ctrl/Cmd + Shift + D', '선택 그룹 뒤에 복제 (CyanCut 추가)'],

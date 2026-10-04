@@ -7,6 +7,8 @@ import {
   trim,
   validateProject,
   paste,
+  clipDefaults,
+  type Clip,
   type Asset,
 } from '../src/model';
 import { deleteTrack, pasteEdit, groupClips } from '../src/editing';
@@ -35,6 +37,72 @@ function copy(p: ReturnType<typeof fixture>) {
   return structuredClone(linked(short, [short.clips[0].id]));
 }
 describe('Shotcut clipboard and track safety', () => {
+  function caption(p: ReturnType<typeof fixture>): Clip {
+    return {
+      ...clipDefaults(),
+      id: 'caption',
+      trackId: p.tracks[0].id,
+      kind: 'text',
+      textRole: 'caption',
+      name: '한글 자막',
+      start: 0,
+      duration: tick(2),
+      sourceIn: 0,
+      text: {
+        text: '영상 위의 자막\n두 번째 줄',
+        size: 48,
+        color: '#ffffff',
+        bold: false,
+        align: 'center',
+        outline: 2,
+        shadow: true,
+        background: '',
+      },
+    };
+  }
+  it('pastes overlapping captions without cutting, moving or changing existing media', () => {
+    const p = fixture();
+    p.clips.push(caption(p));
+    p.workRange = { start: tick(1), end: tick(8) };
+    const original = structuredClone(p);
+    // Even if the video track is active, text belongs on a free overlay layer.
+    const result = pasteEdit(p, [p.clips[2]], tick(1), p.tracks[1].id);
+    expect(result.error).toBeUndefined();
+    expect(result.project.clips.filter((c) => !result.inserted!.includes(c.id))).toEqual(p.clips);
+    expect(result.project.workRange).toEqual(p.workRange);
+    const added = result.project.clips.find((c) => result.inserted!.includes(c.id))!;
+    expect(added.start).toBe(tick(1));
+    expect(added.text).toEqual(p.clips[2].text);
+    expect(added.textRole).toBe('caption');
+    expect(added.trackId).not.toBe(p.tracks[1].id);
+    expect(added.trackId).not.toBe(p.clips[2].trackId);
+    expect(validateProject(result.project)).toEqual(result.project);
+    expect(p).toEqual(original);
+  });
+  it('pastes captions over locked background media without editing it', () => {
+    const p = fixture();
+    p.clips.push(caption(p));
+    p.tracks[1].locked = true;
+    p.tracks[2].locked = true;
+    const result = pasteEdit(p, [p.clips[2]], tick(4), p.tracks[2].id);
+    expect(result.error).toBeUndefined();
+    expect(result.project.clips.filter((c) => c.kind !== 'text')).toEqual(p.clips.slice(0, 2));
+    expect(result.project.clips.at(-1)!.trackId).toBe(p.tracks[0].id);
+  });
+  it('pastes grouped captions with relative timing and fresh group IDs, without moving media', () => {
+    const p = fixture();
+    const first = { ...caption(p), groupId: 'captions' };
+    const second = { ...first, id: 'caption-2', start: tick(3) };
+    p.clips.push(first, second);
+    const result = pasteEdit(p, [first, second], tick(4), p.tracks[1].id);
+    expect(result.error).toBeUndefined();
+    expect(result.project.clips.filter((c) => !result.inserted!.includes(c.id))).toEqual(p.clips);
+    const added = result.project.clips.filter((c) => result.inserted!.includes(c.id));
+    expect(added.map((c) => c.start)).toEqual([tick(4), tick(7)]);
+    expect(added[0].groupId).not.toBe(first.groupId);
+    expect(added[1].groupId).toBe(added[0].groupId);
+    expect(validateProject(result.project)).toEqual(result.project);
+  });
   it('uses the physical letter key without changing punctuation', () => {
     expect(shortcutKey({ key: 'ㅊ', code: 'KeyC' })).toBe('c');
     expect(shortcutKey({ key: 'ㄴ', code: 'KeyS' })).toBe('s');

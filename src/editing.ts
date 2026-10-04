@@ -16,7 +16,7 @@ import {
   type Track,
 } from './model';
 
-/** Clipboard inserts open time on every track; overwrites affect destination tracks and linked partners. */
+/** Text-only paste adds overlays; media inserts open time on every track. */
 export function pasteEdit(
   p: Project,
   copied: Clip[],
@@ -37,11 +37,20 @@ export function pasteEdit(
   }
   if (!Number.isSafeInteger(at) || at < 0)
     return { project: p, error: '올바른 재생헤드 위치를 지정하세요.' };
+  const textOverlay = mode === 'insert' && copied.every((c) => c.kind === 'text');
+  if (textOverlay && new Set(copied.map((c) => c.trackId)).size === 1) {
+    const span =
+      Math.max(...copied.map((c) => c.start + c.duration)) -
+      Math.min(...copied.map((c) => c.start));
+    const placement = freeLayer(base, at, span, '붙여넣기 텍스트');
+    base = placement.project;
+    activeTrack = placement.track.id;
+  }
   const placed = paste(base, copied, at, activeTrack);
   if (placed === base) return { project: p, error: '붙여넣을 트랙 종류와 잠금을 확인하세요.' };
   const added = placed.clips.filter((c) => !base.clips.some((old) => old.id === c.id));
   const span = Math.max(...added.map((c) => c.start + c.duration)) - at;
-  if (mode === 'insert' || mode === 'overwrite') {
+  if ((mode === 'insert' && !textOverlay) || mode === 'overwrite') {
     const destination = new Set(added.map((c) => c.trackId));
     const affected =
       mode === 'insert'

@@ -533,6 +533,11 @@ export default memo(function Timeline({
                 ).map(([mode, label]) => (
                   <button
                     key={mode}
+                    title={
+                      mode === 'insert'
+                        ? '자막·텍스트는 별도 레이어에 추가하고, 영상·오디오는 전체 트랙에 시간을 삽입합니다.'
+                        : undefined
+                    }
                     disabled={mode === 'replace' && !canEdit}
                     onClick={() => {
                       setPasteMenu(false);
