@@ -14,6 +14,14 @@ Windows / Chrome 154에서 단위 **55개**, 전체 로컬 통합 **38개**가 �
 
 기존 통합은 한글 합성·컷/트림/전환·실제 가로/세로 MP4/WebM/WAV/MP3·1080p·AAC 대체·실패 복구·저장/프로젝트 전환·속도/음정 유지 등을 포함한다. Shotcut의 모든 기능이나 모든 브라우저 단축키를 지원한다는 의미는 아니다.
 
+### 입력 조작 수정 운영 배포
+
+코드 커밋 `ca657f583ee5355de38b95d23d9aace3e4cbcbd5`의 GitHub main 연동 배포가 Vercel production/Ready이며 공개 도메인 연결을 확인했다. 배포 ID는 `dpl_EvJiD36GS2oFKTQjD9RwaxxvUqLu`, 고정 주소는 [cutandcut-6p6i5n0hw](https://cutandcut-6p6i5n0hw-wondaes-projects-fe5c826b.vercel.app), 운영은 [cutandcut.vercel.app](https://cutandcut.vercel.app)다. 원격 빌드는 22초다.
+
+Windows / Chrome 154.0.8037.93의 새 브라우저 컨텍스트에서 **운영 시나리오 7개**가 통과했다 (1.5분). 운영 도메인의 캡처 손실 후 트랙 삭제·저장·재열기, 한글 자판 복사·붙여넣기, 숫자 blur 뒤 삭제, S/X/Z와 undo/redo, 트랙 키·I 트림·IME·메뉴, 320px 도움말을 재검사했다. 별도 실제 MP4 두 개·PNG·WAV 가져오기와 한글 합성, 가로/세로 MP4·세로 WebM·WAV·MP3 생성·다운로드·플레이어 재생·오디오 디코딩도 통과했다.
+
+MP4는 AVC/AAC·1280×720 및 720×1280·6.016초, WebM은 VP9/Opus·720×1280·6.020초, WAV는 PCM s16, MP3는 MP3였다. 다섯 출력 모두 오디오 에너지가 있고 페이지 예외는 0개였다. [운영 파일 분석](results/production-shortcuts.json). Worker 번들 `engine.worker-DQnTbglK.js`는 이전 리팩터링 배포와 같다. 이번 운영 검사는 네이티브 경로이며 AAC 대체/다른 브라우저의 재검증 결과로 확대하지 않는다.
+
 ## 구조 리팩터링 · 2026-10-03
 
 전체 검토의 문제·영향·위험도와 보류 판단은 [REFACTOR_PASS.md](REFACTOR_PASS.md)에 있다. 기능·UI와 스타일을 유지하며 공통 편집 규칙, 오류 처리와 자원 수명을 정리했다. Windows / Chrome 154.0.8037.93 / Node.js 24.12.0에서 단위 **47개**, 전체 로컬 통합 **31개**가 통과했다 (3.2분; 운영 URL 1개는 별도 실행). 마지막 전환 전달 경로 정리 후 실제 편집·출력·복구, 가변 FPS 및 새 회귀 흐름 **9개**를 재검사해 통과했다 (1.2분). strict/unused 타입 검사, Prettier, git diff check와 Vite 프로덕션 빌드도 통과했다 (5.08초).
