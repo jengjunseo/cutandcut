@@ -6,7 +6,13 @@
 
 Windows / Chrome 154에서 실제 H.264/AAC MP4를 배치하고 두 줄 한글 자막을 복사했다. 영상 트랙을 선택한 뒤 Ctrl+V로 겹치는 위치에 붙이고, 버튼과 V로도 추가해 자막 4개를 만들었다. 기존 영상·오디오·자막의 전체 직렬화 데이터가 동일하며, 겹침은 별도 레이어로 배치됐다. Undo/redo, JSON 저장, 자동 저장 후 재열기에서 같은 상태를 유지했다. 실제 MP4를 다운로드해 0.25·0.75·1.25·1.75초 프레임과 1–1.5초 오디오를 별도 디코딩했다. 결과는 1280×720·2.048초·AAC·190,907바이트이며 모든 프레임에서 원본 붉은 배경이 유지되고 오디오 에너지가 있었다. 페이지 예외는 0개였다. [로컬 파일 분석](results/caption-paste-local.json).
 
-수정 후 단위 **58개**, 전체 로컬 브라우저 통합 **41개**가 통과했다 (5.4분; 운영 전용 1개는 별도 실행 대상). strict/unused 타입 검사, 포맷 검사, git diff check와 Vite 빌드도 통과했다 (17.91초; 통합 검사와 병행). 이미 잘못 저장한 컷을 추측해 자동 변경하지 않는다. 원본 파일은 비파괴 편집으로 보존된다. 운영 배포 검사는 아래에 완료 결과를 추가한다.
+수정 후 단위 **58개**, 전체 로컬 브라우저 통합 **41개**가 통과했다 (5.4분; 운영 전용 1개는 별도 실행 대상). strict/unused 타입 검사, 포맷 검사, git diff check와 Vite 빌드도 통과했다 (17.91초; 통합 검사와 병행). 이미 잘못 저장한 컷을 추측해 자동 변경하지 않는다. 원본 파일은 비파괴 편집으로 보존된다.
+
+### 자막 회귀 수정 운영 배포
+
+코드 커밋 `ccd5cbd4e459afd3ac4b7ff02199783f496b91c2`의 GitHub main 연동 배포는 Vercel production/Ready이며 공개 도메인 연결을 확인했다. 배포 ID는 `dpl_DK9HzHJVUHzxXLpcb4hsFkVGCdGj`, 고정 주소는 [cutandcut-bxg37wdac](https://cutandcut-bxg37wdac-wondaes-projects-fe5c826b.vercel.app), 운영은 [cutandcut.vercel.app](https://cutandcut.vercel.app)다. 원격 빌드는 22초다.
+
+새 Chrome 컨텍스트에서 운영 도메인의 **4개 시나리오**가 통과했다 (43.1초). 실제 MP4 위의 겹치는 한글 자막 복사와 Ctrl+V·버튼·V, 영상·오디오·원래 자막 데이터 보존, undo/redo, JSON 저장, 자동 복구 및 실제 MP4 출력·다운로드·별도 프레임/오디오 디코딩을 재검사했다. 캡처 손실 뒤 트랙 삭제·새로고침, 한글 자판 복사·붙여넣기, 변경하지 않은 숫자 blur 뒤 트랙 삭제도 유지됐다. 결과는 1280×720·2.048초·AAC 에너지 있음이며 네 시각의 원본 영상 배경이 유지됐고 페이지 예외는 0개였다. [운영 파일 분석](results/caption-paste-production.json). 출력 Worker 번들은 `engine.worker-DQnTbglK.js`로 유지됐다. 이번 수정의 운영 검증 범위는 Windows 데스크톱 Chrome과 MP4 네이티브 출력이다.
 
 ## 입력 조작과 Shotcut 단축키 · 2026-10-04
 
