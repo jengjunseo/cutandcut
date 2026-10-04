@@ -39,10 +39,10 @@ export default function PrecisionTools({
     inside = members.some((c) => c.start < time && c.start + c.duration > time);
   return (
     <div className="precision-tools" aria-label="정밀 편집 도구">
-      <button onClick={() => seek(clipBoundary(p, time, -1))} title="이전 클립 경계 (↑)">
+      <button onClick={() => seek(clipBoundary(p, time, -1))} title="이전 클립 경계 (Alt+←)">
         이전 경계
       </button>
-      <button onClick={() => seek(clipBoundary(p, time, 1))} title="다음 클립 경계 (↓)">
+      <button onClick={() => seek(clipBoundary(p, time, 1))} title="다음 클립 경계 (Alt+→)">
         다음 경계
       </button>
       <button onClick={() => commit(markRange(p, time, 'start'))}>구간 시작 I</button>

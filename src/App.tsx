@@ -36,6 +36,7 @@ import {
   split,
   remove,
   paste,
+  move,
   linked,
   clipDefaults,
   setTransition,
@@ -47,8 +48,18 @@ import {
   type Transition,
 } from './model';
 import { History } from './history';
+import { shortcutKey, shortcuts } from './shortcuts';
 import { files, inspect, request, checkCapabilities, type Capabilities } from './engine';
-import { freeLayer, insertMedia, markRange, clipBoundary, trimToHead, groupClips } from './editing';
+import {
+  freeLayer,
+  insertMedia,
+  markRange,
+  clipBoundary,
+  trimToHead,
+  groupClips,
+  deleteTrack,
+  pasteEdit,
+} from './editing';
 import {
   saveProject,
   restoreProject,
@@ -74,30 +85,6 @@ import {
   trapDialogFocus,
 } from './ui';
 const ExportDialog = lazy(() => import('./ExportDialog'));
-const shortcuts = [
-  ['Space', '재생 / 일시정지'],
-  ['J / K / L', '역방향 탐색 / 정지 / 정방향 재생'],
-  ['← / →', '이전 / 다음 프레임 · 재생 정지'],
-  ['Shift + ← / →', '10프레임 이동'],
-  ['Home / End', '프로젝트 시작 / 끝 *'],
-  ['V / B', '선택 / 분할 도구'],
-  ['Ctrl/Cmd + B', '재생헤드에서 선택 클립 분할'],
-  ['Delete / Shift + Delete', '일반 삭제 / 전체 트랙 리플 삭제'],
-  ['Ctrl/Cmd + Z', '실행 취소'],
-  ['Ctrl/Cmd + Shift + Z', '다시 실행'],
-  ['Ctrl/Cmd + C / V', '복사 / 재생헤드에 붙여넣기'],
-  ['Ctrl/Cmd + D', '선택 그룹 뒤에 복제'],
-  ['Ctrl/Cmd + A', '활성 타임라인 전체 선택 *'],
-  ['Ctrl/Cmd + S', '프로젝트 파일 저장'],
-  ['+ / −', '타임라인 확대 / 축소 *'],
-  ['S', '스냅 토글'],
-  ['Escape', '조작 취소 / 선택 해제'],
-  ['?', '단축키 도움말'],
-  ['I / O', '구간 시작 / 끝 지정'],
-  ['↑ / ↓', '이전 / 다음 클립 경계 *'],
-  ['[ / ]', '재생헤드 앞 / 뒤 자르기'],
-  ['Ctrl/Cmd + G / Ctrl/Cmd + Shift + G', '그룹화 / 그룹 해제 *'],
-];
 export default function App() {
   const [project, setProject] = useState<Project>(emptyProject),
     projectRef = useRef(project);
@@ -139,7 +126,7 @@ export default function App() {
     [transitionSeconds, setTransitionSeconds] = useState(0.5);
   const fileInput = useRef<HTMLInputElement>(null),
     projectInput = useRef<HTMLInputElement>(null),
-    clipboard = useRef<Clip[]>([]),
+    [clipboard, setClipboard] = useState<Clip[]>([]),
     toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined),
     saveGeneration = useRef(0),
     importBusy = useRef(false),
@@ -197,7 +184,9 @@ export default function App() {
     const p = projectRef.current;
     setPlaying(false);
     setTime(
-      Math.max(0, Math.min(duration(p), frameTick(Math.round(seconds(value) * p.fps), p.fps))),
+      value >= duration(p)
+        ? duration(p)
+        : Math.max(0, Math.min(duration(p), frameTick(Math.round(seconds(value) * p.fps), p.fps))),
     );
     audio.current.stop();
   }, []);
@@ -242,6 +231,56 @@ export default function App() {
     const at = Math.max(...copied.map((c) => c.start + c.duration));
     commit(paste(p, copied, at));
   }
+  function copySelection(cut = false) {
+    const p = projectRef.current;
+    const copied = structuredClone(linked(p, selected));
+    if (!copied.length) {
+      notify('타임라인에서 복사할 클립을 선택하세요.');
+      return;
+    }
+    if (cut) {
+      const result = remove(p, selected, true);
+      if (result.error) {
+        notify(result.error);
+        return;
+      }
+      commit(result.project);
+      setSelected([]);
+    }
+    setClipboard(copied);
+    notify(
+      `${copied.length}개 클립을 ${cut ? '잘라냈' : '복사했'}습니다. 재생헤드 위치에 붙여넣으세요.`,
+    );
+  }
+  function pasteSelection(mode: 'insert' | 'overwrite' | 'append' | 'replace' = 'insert') {
+    const p = projectRef.current;
+    if (!clipboard.length) {
+      notify('먼저 클립을 복사하세요.');
+      return;
+    }
+    const result = pasteEdit(p, clipboard, timeRef.current, activeTrack, mode, selected);
+    if (result.error) {
+      notify(result.error);
+      return;
+    }
+    commit(result.project);
+    setSelected(result.inserted ?? []);
+    setPlaying(false);
+  }
+  function removeTrack(trackId = activeTrack) {
+    const result = deleteTrack(projectRef.current, trackId);
+    if (result.error) notify(result.error);
+    else {
+      commit(result.project);
+      setSelected((ids) => ids.filter((id) => result.project.clips.some((c) => c.id === id)));
+    }
+  }
+  useEffect(() => {
+    if (!project.tracks.some((t) => t.id === activeTrack))
+      setActiveTrack(
+        project.tracks.find((t) => t.kind === 'visual')?.id ?? project.tracks[0]?.id ?? '',
+      );
+  }, [project.tracks, activeTrack]);
   async function toggle() {
     setPlayingRange(false);
     if (!projectRef.current.clips.length) return;
@@ -367,50 +406,135 @@ export default function App() {
         switchBusy.current
       )
         return;
-      if (e.key === ' ' && target?.closest('button')) return;
+      if (e.key === ' ' && !e.ctrlKey && !e.metaKey && target?.closest('button')) return;
       const command = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
+      const key = shortcutKey(e);
       const focused = !!target?.closest('.timeline-panel');
+      const p = projectRef.current;
+      const track = p.tracks.find((t) => t.id === activeTrack);
+      const trackIndex = p.tracks.findIndex((t) => t.id === activeTrack);
+      if (key === 'pageup' || key === 'pagedown') {
+        e.preventDefault();
+        const amount = command ? (e.shiftKey ? 10 : 5) : e.shiftKey ? 2 : 1;
+        seek(timeRef.current + tick(amount) * (key === 'pageup' ? -1 : 1));
+        return;
+      }
+      if (e.altKey && !command && (key === 'arrowleft' || key === 'arrowright')) {
+        e.preventDefault();
+        seek(clipBoundary(p, timeRef.current, key === 'arrowleft' ? -1 : 1));
+        return;
+      }
+      if (e.altKey && e.shiftKey && focused && (key === 'arrowup' || key === 'arrowdown')) {
+        e.preventDefault();
+        const dest = trackIndex + (key === 'arrowup' ? -1 : 1);
+        if (dest >= 0 && dest < p.tracks.length) {
+          const tracks = [...p.tracks];
+          [tracks[trackIndex], tracks[dest]] = [tracks[dest], tracks[trackIndex]];
+          commit({ ...p, tracks });
+        }
+        return;
+      }
       if (command) {
         if (key === 's') {
           e.preventDefault();
           saveDownload();
-        } else if (key === 'z') {
+        } else if (key === 'z' || key === 'y') {
           e.preventDefault();
-          if (e.shiftKey) redo();
+          if (e.shiftKey || key === 'y') redo();
           else undo();
         } else if (key === 'b') {
           e.preventDefault();
           splitSelected();
-        } else if (key === 'c' && selected.length) {
+        } else if (key === 'c' || key === 'x') {
           e.preventDefault();
-          clipboard.current = structuredClone(linked(projectRef.current, selected));
-          notify('클립을 복사했습니다.');
-        } else if (key === 'v' && clipboard.current.length) {
+          copySelection(key === 'x');
+        } else if (key === 'v') {
           e.preventDefault();
-          const p = projectRef.current;
-          const next = paste(p, clipboard.current, timeRef.current, activeTrack);
-          if (next === p)
-            notify(
-              '트랙 종류와 잠금 상태를 확인하세요. 여러 트랙 복사는 원래 트랙에 붙여넣습니다.',
-            );
-          else commit(next);
-        } else if (key === 'd' && selected.length) {
+          pasteSelection();
+        } else if (key === 'd') {
           e.preventDefault();
-          duplicate();
+          if (e.shiftKey && selected.length) duplicate();
+          else setSelected([]);
         } else if (key === 'a' && focused) {
           e.preventDefault();
           setSelected(
-            project.clips
-              .filter((c) => !project.tracks.find((t) => t.id === c.trackId)?.locked)
+            p.clips
+              .filter(
+                (c) =>
+                  (!e.altKey || c.trackId === activeTrack) &&
+                  !p.tracks.find((t) => t.id === c.trackId)?.locked,
+              )
               .map((c) => c.id),
           );
         } else if (key === 'g' && focused) {
           e.preventDefault();
-          commit(groupClips(projectRef.current, selected, e.shiftKey));
+          commit(groupClips(p, selected, e.shiftKey || linked(p, selected).some((c) => c.groupId)));
+        } else if (key === 'e') {
+          e.preventDefault();
+          if (e.shiftKey) void mediaTask('capture');
+          else setExportOpen(true);
+        } else if (key === 'o') {
+          e.preventDefault();
+          (e.shiftKey ? projectInput : fileInput).current?.click();
+        } else if (key === '3') {
+          e.preventDefault();
+          setRecentOpen(true);
+        } else if (key === '9') {
+          e.preventDefault();
+          setExportOpen(true);
+        } else if (key === '2' || key === '4' || key === '5') {
+          e.preventDefault();
+          if (key === '2') {
+            setMobileTab('inspector');
+            document.querySelector<HTMLElement>('.inspector-panel')?.focus();
+          } else if (key === '4') {
+            setTab('media');
+            setMobileTab('media');
+          } else document.querySelector<HTMLElement>('.timeline-panel')?.focus();
+        } else if (focused && (key === 'u' || key === 'i')) {
+          e.preventDefault();
+          if (e.altKey && key === 'u') removeTrack();
+          else addTrack(key === 'u' ? 'audio' : 'visual');
+        } else if (focused && key === 'p') {
+          e.preventDefault();
+          setSnap((s) => !s);
+        } else if (focused && track && ['m', 'h', 'l'].includes(key)) {
+          e.preventDefault();
+          const value =
+            key === 'l'
+              ? { locked: !track.locked }
+              : key === 'm' && track.kind === 'audio'
+                ? { muted: !track.muted }
+                : key === 'h' && track.kind === 'visual'
+                  ? { hidden: !track.hidden }
+                  : {};
+          commit({
+            ...p,
+            tracks: p.tracks.map((t) => (t.id === track.id ? { ...t, ...value } : t)),
+          });
+        } else if (focused && key === ' ') {
+          e.preventDefault();
+          setSelected(
+            p.clips
+              .filter(
+                (c) =>
+                  c.trackId === activeTrack &&
+                  c.start <= timeRef.current &&
+                  c.start + c.duration > timeRef.current,
+              )
+              .map((c) => c.id),
+          );
+        } else if (focused && (key === 'arrowleft' || key === 'arrowright')) {
+          e.preventDefault();
+          commit(move(p, selected, frameTick(1, p.fps) * (key === 'arrowleft' ? -1 : 1)));
+        } else if (focused && (key === 'arrowup' || key === 'arrowdown')) {
+          e.preventDefault();
+          const dest = p.tracks[trackIndex + (key === 'arrowup' ? -1 : 1)];
+          if (dest) commit(move(p, selected, 0, dest.id));
         }
         return;
       }
+      if (e.altKey) return;
       if (e.key === ' ') {
         e.preventDefault();
         void toggle();
@@ -435,41 +559,96 @@ export default function App() {
         );
       } else if (key === 'i' || key === 'o') {
         e.preventDefault();
-        commit(markRange(projectRef.current, timeRef.current, key === 'i' ? 'start' : 'end'));
+        commit(
+          focused
+            ? trimToHead(
+                p,
+                selected.length
+                  ? selected
+                  : p.clips
+                      .filter(
+                        (c) =>
+                          c.trackId === activeTrack &&
+                          c.start < timeRef.current &&
+                          c.start + c.duration > timeRef.current,
+                      )
+                      .map((c) => c.id),
+                timeRef.current,
+                key === 'i' ? 'start' : 'end',
+              )
+            : markRange(p, timeRef.current, key === 'i' ? 'start' : 'end'),
+        );
       } else if (focused && (key === 'arrowup' || key === 'arrowdown')) {
         e.preventDefault();
-        seek(clipBoundary(projectRef.current, timeRef.current, key === 'arrowup' ? -1 : 1));
+        const dest = p.tracks[trackIndex + (key === 'arrowup' ? -1 : 1)];
+        if (dest) setActiveTrack(dest.id);
       } else if (key === '[' || key === ']') {
         e.preventDefault();
         commit(
           trimToHead(projectRef.current, selected, timeRef.current, key === '[' ? 'start' : 'end'),
         );
-      } else if (key === 'delete' || key === 'backspace') {
+      } else if (key === 'delete' || key === 'backspace' || key === 'x' || key === 'z') {
         e.preventDefault();
-        if (selected.length) deleteSelected(e.shiftKey);
-      } else if (key === 's') setSnap(!snap);
-      else if (key === 'v') setTool('select');
-      else if (key === 'b') setTool('split');
-      else if (key === 'escape') {
+        if (selected.length && !e.repeat) deleteSelected(key === 'x' || e.shiftKey);
+      } else if (key === 's') {
+        e.preventDefault();
+        if (e.repeat) return;
+        const ids = e.shiftKey
+          ? p.clips
+              .filter((c) => c.start < timeRef.current && c.start + c.duration > timeRef.current)
+              .map((c) => c.id)
+          : selected.length
+            ? selected
+            : p.clips
+                .filter(
+                  (c) =>
+                    c.trackId === activeTrack &&
+                    c.start < timeRef.current &&
+                    c.start + c.duration > timeRef.current,
+                )
+                .map((c) => c.id);
+        const next = split(p, ids, timeRef.current);
+        if (next === p)
+          notify('분할할 클립 내부에 재생헤드를 놓고 연결·그룹 트랙의 잠금을 확인하세요.');
+        else {
+          commit(next);
+          setPlaying(false);
+        }
+      } else if (key === 'c') {
+        e.preventDefault();
+        copySelection();
+      } else if (focused && ['a', 'v', 'b', 'r'].includes(key)) {
+        e.preventDefault();
+        if (!e.repeat)
+          pasteSelection(
+            key === 'a' ? 'append' : key === 'v' ? 'insert' : key === 'b' ? 'overwrite' : 'replace',
+          );
+      } else if (key === 'escape') {
         setDraft(undefined);
         setSelected([]);
         setProjectMenu(false);
-      } else if (e.key === '?') {
+      } else if (e.key === '?' || e.key === '/') {
         e.preventDefault();
         setHelpOpen(true);
+      } else if (key === 'home' || key === 'end') {
+        e.preventDefault();
+        seek(key === 'home' ? 0 : duration(p));
       } else if (focused) {
-        if (key === 'home') {
-          e.preventDefault();
-          seek(0);
-        } else if (key === 'end') {
-          e.preventDefault();
-          seek(duration(project));
-        } else if (e.key === '+' || e.key === '=') {
+        if (e.key === '+' || e.key === '=') {
           e.preventDefault();
           setZoom(Math.min(200, zoom * 1.3));
         } else if (e.key === '-') {
           e.preventDefault();
           setZoom(Math.max(8, zoom / 1.3));
+        } else if (key === '0') {
+          e.preventDefault();
+          const width = document.querySelector('.timeline-scroll')?.clientWidth ?? 1200;
+          setZoom(
+            Math.min(200, Math.max(8, (width - 240) / Math.max(6, seconds(duration(p)) + 2))),
+          );
+        } else if (key === ',' || key === '.') {
+          e.preventDefault();
+          commit(move(p, selected, frameTick(1, p.fps) * (key === ',' ? -1 : 1)));
         }
       }
     };
@@ -719,7 +898,7 @@ export default function App() {
       for (const [key, file] of originals) files.set(key, file);
       history.current.clear();
       editGeneration.current++;
-      clipboard.current = [];
+      setClipboard([]);
       projectRef.current = target;
       setProject(target);
       setDraft(undefined);
@@ -1547,6 +1726,10 @@ export default function App() {
         split={splitSelected}
         remove={deleteSelected}
         duplicate={duplicate}
+        copy={() => copySelection()}
+        paste={pasteSelection}
+        canPaste={!!clipboard.length}
+        removeTrack={removeTrack}
         addTrack={addTrack}
         dropAsset={appendAsset}
         applyTransition={applyTransition}
@@ -1678,7 +1861,21 @@ export default function App() {
             </div>
             <p className="small-note">
               * 타임라인에 포커스가 있을 때 적용. 입력·IME 조합 중에는 편집 단축키가 동작하지
-              않습니다. 붙여넣기는 단일 트랙이면 활성 트랙, 다층 그룹이면 원래 트랙을 유지합니다.
+              않습니다. 복사·붙여넣기는 이 프로젝트 안에서 동작합니다. 단일 트랙은 활성 트랙, 다층
+              그룹은 원래 트랙에 배치하며 삭제된 원래 트랙은 새로 만듭니다. 삽입과 리플 삭제는
+              동기화를 위해 전체 트랙에 적용합니다.
+            </p>
+            <p className="small-note">
+              Shotcut의 현재 편집 기능에 대응하는 키를 제공합니다. 필터·키프레임·마커·프록시·작업
+              목록 및 리플 모드 토글은 아직 제공하지 않습니다. Ctrl/Cmd+N·W·Q·T와 일부 패널 키는
+              브라우저가 사용하므로 프로젝트 메뉴와 화면의 버튼을 이용하세요.{' '}
+              <a
+                href="https://shotcut.org/howtos/keyboard-shortcuts/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Shotcut 공식 단축키
+              </a>
             </p>
           </div>
         </div>

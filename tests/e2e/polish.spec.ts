@@ -60,7 +60,7 @@ test('polish: project and track popovers share keyboard dismissal without editin
     page.getByRole('button', { name: '사용하지 않는 원본 정리', exact: true }),
   ).toBeFocused();
   await page.keyboard.press('b');
-  await expect(page.getByRole('button', { name: '선택 도구 (V)', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: '선택 도구', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );

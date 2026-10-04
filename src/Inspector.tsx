@@ -42,7 +42,7 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
   }
   const ratio = ratioOf(p);
   return (
-    <aside className="inspector-panel">
+    <aside className="inspector-panel" tabIndex={-1}>
       <div className="panel-top">
         <span className="eyebrow">{c ? '클립 속성' : '프로젝트 설정'}</span>
         <SlidersHorizontal size={15} />
@@ -624,7 +624,8 @@ export function NumberInput({
   const apply = () => {
     const n = Number(draft);
     setDraft(String(Math.round(value * 100) / 100));
-    if (draft !== '' && Number.isFinite(n)) onCommit(Math.max(min, Math.min(max, n)));
+    if (draft !== '' && Number.isFinite(n) && draft !== String(Math.round(value * 100) / 100))
+      onCommit(Math.max(min, Math.min(max, n)));
   };
   return (
     <input

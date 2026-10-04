@@ -8,10 +8,105 @@ import {
   linked,
   editable,
   normalize,
+  paste,
+  projectLimitError,
+  type Clip,
   type Asset,
   type Project,
   type Track,
 } from './model';
+
+/** Clipboard inserts open time on every track; overwrites affect destination tracks and linked partners. */
+export function pasteEdit(
+  p: Project,
+  copied: Clip[],
+  at: number,
+  activeTrack: string,
+  mode: 'insert' | 'overwrite' | 'append' | 'replace' = 'insert',
+  selection: string[] = [],
+): { project: Project; error?: string; inserted?: string[] } {
+  if (!copied.length) return { project: p, error: '먼저 타임라인 클립을 복사하세요.' };
+  let base = p;
+  if (mode === 'append') at = duration(p);
+  if (mode === 'replace') {
+    const chosen = linked(p, selection);
+    if (!editable(p, chosen))
+      return { project: p, error: '교체할 클립과 연결·그룹 구성원의 잠금을 확인하세요.' };
+    at = Math.min(...chosen.map((c) => c.start));
+    base = { ...p, clips: p.clips.filter((c) => !chosen.some((x) => x.id === c.id)) };
+  }
+  if (!Number.isSafeInteger(at) || at < 0)
+    return { project: p, error: '올바른 재생헤드 위치를 지정하세요.' };
+  const placed = paste(base, copied, at, activeTrack);
+  if (placed === base) return { project: p, error: '붙여넣을 트랙 종류와 잠금을 확인하세요.' };
+  const added = placed.clips.filter((c) => !base.clips.some((old) => old.id === c.id));
+  const span = Math.max(...added.map((c) => c.start + c.duration)) - at;
+  if (mode === 'insert' || mode === 'overwrite') {
+    const destination = new Set(added.map((c) => c.trackId));
+    const affected =
+      mode === 'insert'
+        ? base.clips.filter((c) => c.start + c.duration > at)
+        : linked(
+            base,
+            base.clips
+              .filter(
+                (c) =>
+                  destination.has(c.trackId) && c.start < at + span && c.start + c.duration > at,
+              )
+              .map((c) => c.id),
+          );
+    if (
+      affected.length &&
+      !editable(
+        base,
+        linked(
+          base,
+          affected.map((c) => c.id),
+        ),
+      )
+    )
+      return { project: p, error: '영향받는 트랙과 연결·그룹 구성원의 잠금을 먼저 해제하세요.' };
+    const tracks = new Set(affected.map((c) => c.trackId));
+    const end = mode === 'insert' ? at : at + span;
+    const rightLinks = new Map<string, string>(),
+      rightGroups = new Map<string, string>();
+    const clips: Clip[] = [];
+    for (const c of base.clips) {
+      if (!tracks.has(c.trackId) || c.start + c.duration <= at) {
+        clips.push(c);
+        continue;
+      }
+      if (c.start >= end) {
+        clips.push(mode === 'insert' ? { ...c, start: c.start + span } : c);
+        continue;
+      }
+      const left = at - c.start,
+        right = c.start + c.duration - end;
+      if ((left > 0 && left < frameTick(1, p.fps)) || (right > 0 && right < frameTick(1, p.fps)))
+        return { project: p, error: '클립 경계에서 한 프레임 이상 떨어진 위치를 사용하세요.' };
+      if (left > 0) clips.push({ ...c, duration: left, fadeOut: 0 });
+      if (right > 0) {
+        if (c.linkId && !rightLinks.has(c.linkId)) rightLinks.set(c.linkId, id());
+        if (c.groupId && !rightGroups.has(c.groupId)) rightGroups.set(c.groupId, id());
+        clips.push({
+          ...c,
+          id: id(),
+          start: mode === 'insert' ? at + span : end,
+          duration: right,
+          sourceIn: c.sourceIn + Math.round((end - c.start) * (c.speed ?? 1)),
+          linkId: c.linkId ? rightLinks.get(c.linkId) : undefined,
+          groupId: c.groupId ? rightGroups.get(c.groupId) : undefined,
+          transition: undefined,
+          fadeIn: 0,
+        });
+      }
+    }
+    base = { ...placed, clips: [...clips, ...added], workRange: undefined };
+  } else base = placed;
+  const next = normalize(structuredClone(base)),
+    error = projectLimitError(next);
+  return error ? { project: p, error } : { project: next, inserted: added.map((c) => c.id) };
+}
 /** Reuse a layer only when it has room; keep overlays separate from the base video. */
 export function freeLayer(p: Project, start: number, length: number, name: string) {
   const base = p.tracks.filter((t) => t.kind === 'visual').at(-1)?.id;
@@ -73,6 +168,26 @@ export function groupClips(p: Project, selection: string[], ungroup = false) {
   return {
     ...p,
     clips: p.clips.map((c) => (members.some((m) => m.id === c.id) ? { ...c, groupId: key } : c)),
+  };
+}
+export function deleteTrack(p: Project, trackId: string): { project: Project; error?: string } {
+  const track = p.tracks.find((t) => t.id === trackId);
+  if (!track) return { project: p };
+  const members = linked(
+    p,
+    p.clips.filter((c) => c.trackId === trackId).map((c) => c.id),
+  );
+  if (track.locked || (members.length && !editable(p, members)))
+    return { project: p, error: '트랙과 연결·그룹 구성원의 잠금을 먼저 해제하세요.' };
+  const links = new Set(members.filter((c) => c.trackId === trackId).map((c) => c.linkId));
+  return {
+    project: {
+      ...p,
+      tracks: p.tracks.filter((t) => t.id !== trackId),
+      clips: p.clips
+        .filter((c) => c.trackId !== trackId)
+        .map((c) => (c.linkId && links.has(c.linkId) ? { ...c, linkId: undefined } : c)),
+    },
   };
 }
 export function changeSpeed(p: Project, selection: string[], speed: number, preservePitch = true) {

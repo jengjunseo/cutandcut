@@ -6,6 +6,8 @@ import {
   Plus,
   Minus,
   Copy,
+  ClipboardPaste,
+  Files,
   Trash2,
   Layers,
   LockKeyhole,
@@ -40,6 +42,7 @@ import {
 } from './model';
 import { IconButton, NameInput, usePopup } from './ui';
 import PrecisionTools from './PrecisionTools';
+import { shortcutKey } from './shortcuts';
 type Props = {
   project: Project;
   time: number;
@@ -53,6 +56,10 @@ type Props = {
   split: () => void;
   remove: (ripple?: boolean) => void;
   duplicate: () => void;
+  copy: () => void;
+  paste: (mode?: 'insert' | 'overwrite' | 'append' | 'replace') => void;
+  canPaste: boolean;
+  removeTrack: (id: string) => void;
   addTrack: (kind: 'audio' | 'visual') => void;
   dropAsset: (assetId: string, trackId: string, start: number) => void;
   applyTransition: (kind: Transition['kind'], clipId: string) => void;
@@ -77,6 +84,10 @@ export default memo(function Timeline({
   split: splitAction,
   remove,
   duplicate,
+  copy,
+  paste,
+  canPaste,
+  removeTrack,
   addTrack,
   dropAsset,
   applyTransition,
@@ -89,6 +100,8 @@ export default memo(function Timeline({
   notify,
 }: Props) {
   const scroll = useRef<HTMLDivElement>(null);
+  const cancelGesture = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => cancelGesture.current?.(), [p.id]);
   const [scrollLeft, setScrollLeft] = useState(0),
     [viewport, setViewport] = useState(1200),
     [ghost, setGhost] = useState<{
@@ -101,6 +114,8 @@ export default memo(function Timeline({
     [trackMenu, setTrackMenu] = useState(false);
   const fittedProject = useRef('');
   const trackPopup = usePopup(trackMenu, setTrackMenu);
+  const [pasteMenu, setPasteMenu] = useState(false);
+  const pastePopup = usePopup(pasteMenu, setPasteMenu);
   const [box, setBox] = useState<{ x: number; y: number; width: number; height: number }>(),
     ignoreClick = useRef(false);
   function boxSelect(e: React.PointerEvent) {
@@ -111,6 +126,7 @@ export default memo(function Timeline({
       tool !== 'select'
     )
       return;
+    cancelGesture.current?.();
     const node = scroll.current!,
       target = e.currentTarget as HTMLElement,
       rect = node.getBoundingClientRect();
@@ -165,7 +181,10 @@ export default memo(function Timeline({
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', end);
       target.removeEventListener('pointercancel', cancel);
+      target.removeEventListener('lostpointercapture', cancel);
+      window.removeEventListener('blur', cancel);
       window.removeEventListener('keydown', key);
+      cancelGesture.current = undefined;
       if (target.hasPointerCapture(e.pointerId)) target.releasePointerCapture(e.pointerId);
       setBox(undefined);
     };
@@ -192,6 +211,9 @@ export default memo(function Timeline({
     target.addEventListener('pointermove', move);
     target.addEventListener('pointerup', end, { once: true });
     target.addEventListener('pointercancel', cancel, { once: true });
+    target.addEventListener('lostpointercapture', cancel, { once: true });
+    window.addEventListener('blur', cancel);
+    cancelGesture.current = cancel;
     window.addEventListener('keydown', key);
     raf = requestAnimationFrame(() => update());
   }
@@ -250,6 +272,7 @@ export default memo(function Timeline({
     );
   function dragClip(e: React.PointerEvent, c: Clip, edge?: 'start' | 'end') {
     if (e.button !== 0) return;
+    cancelGesture.current?.();
     e.stopPropagation();
     setActiveTrack(c.trackId);
     if (p.tracks.find((t) => t.id === c.trackId)?.locked) {
@@ -284,13 +307,14 @@ export default memo(function Timeline({
       moved = false,
       clientX = e.clientX,
       clientY = e.clientY,
+      altDown = e.altKey,
       animation = 0;
     const update = () => {
       const total = clientX - startX + scroll.current!.scrollLeft - startScroll;
       let delta = tick(total / zoom);
       const origin = edge === 'end' ? c.start + c.duration : c.start;
       let point = origin + delta;
-      if (snap) {
+      if (snap && !altDown) {
         const excluded = targets.map((c) => c.id),
           tolerance = tick(8 / zoom);
         const snapped = snapTime(base, point, time, excluded, tolerance);
@@ -332,6 +356,7 @@ export default memo(function Timeline({
     const onMove = (event: PointerEvent) => {
       clientX = event.clientX;
       clientY = event.clientY;
+      altDown = event.altKey;
       if (Math.abs(clientX - startX) > 3) moved = true;
     };
     const cleanup = () => {
@@ -339,7 +364,12 @@ export default memo(function Timeline({
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onEnd);
       target.removeEventListener('pointercancel', onCancel);
+      target.removeEventListener('lostpointercapture', onCancel);
+      window.removeEventListener('blur', onCancel);
       window.removeEventListener('keydown', escape);
+      window.removeEventListener('keyup', modifiers);
+      cancelGesture.current = undefined;
+      if (target.hasPointerCapture(e.pointerId)) target.releasePointerCapture(e.pointerId);
       draft(undefined);
       setSnapPoint(null);
     };
@@ -348,19 +378,43 @@ export default memo(function Timeline({
       clientY = event.clientY;
       if (moved) update();
       cleanup();
-      if (moved) commit(next);
+      if (moved) {
+        ignoreClick.current = true;
+        commit(next);
+      }
     };
     const onCancel = () => cleanup();
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') cleanup();
+      if (event.key === 'Alt') {
+        event.preventDefault();
+        altDown = true;
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cleanup();
+      } else if (
+        !event.isComposing &&
+        !(event.target as HTMLElement)?.closest('input,textarea,select') &&
+        (event.ctrlKey ||
+          event.metaKey ||
+          ['s', 'x', 'z', 'c', 'v', 'b', 'delete', 'backspace'].includes(shortcutKey(event)))
+      )
+        cleanup();
+    };
+    const modifiers = (event: KeyboardEvent) => {
+      altDown = event.altKey;
     };
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onEnd, { once: true });
     target.addEventListener('pointercancel', onCancel, { once: true });
+    target.addEventListener('lostpointercapture', onCancel, { once: true });
+    window.addEventListener('blur', onCancel);
+    cancelGesture.current = onCancel;
     window.addEventListener('keydown', escape);
+    window.addEventListener('keyup', modifiers);
   }
   function rulerDrag(e: React.PointerEvent) {
     if (e.button !== 0) return;
+    cancelGesture.current?.();
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
     const change = (event: PointerEvent) => seek(Math.min(duration(p), at(event.clientX)));
@@ -369,10 +423,17 @@ export default memo(function Timeline({
       el.removeEventListener('pointermove', change);
       el.removeEventListener('pointerup', end);
       el.removeEventListener('pointercancel', end);
+      el.removeEventListener('lostpointercapture', end);
+      window.removeEventListener('blur', end);
+      cancelGesture.current = undefined;
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
     };
     el.addEventListener('pointermove', change);
     el.addEventListener('pointerup', end, { once: true });
     el.addEventListener('pointercancel', end, { once: true });
+    el.addEventListener('lostpointercapture', end, { once: true });
+    window.addEventListener('blur', end);
+    cancelGesture.current = end;
   }
   function patchTrack(trackId: string, value: Partial<Track>) {
     commit({ ...p, tracks: p.tracks.map((t) => (t.id === trackId ? { ...t, ...value } : t)) });
@@ -383,34 +444,6 @@ export default memo(function Timeline({
     if (dest < 0 || dest >= tracks.length) return;
     [tracks[index], tracks[dest]] = [tracks[dest], tracks[index]];
     commit({ ...p, tracks });
-  }
-  function trackDelete(trackId: string) {
-    const t = p.tracks.find((t) => t.id === trackId)!;
-    if (t.locked) {
-      notify('트랙을 잠금 해제한 뒤 삭제하세요.');
-      return;
-    }
-    const clips = p.clips.filter((c) => c.trackId === trackId);
-    const groups = new Set(clips.map((c) => c.linkId).filter(Boolean));
-    if (
-      p.clips.some(
-        (c) =>
-          c.linkId &&
-          groups.has(c.linkId) &&
-          c.trackId !== trackId &&
-          p.tracks.find((t) => t.id === c.trackId)?.locked,
-      )
-    ) {
-      notify('링크된 트랙의 잠금을 먼저 해제하세요.');
-      return;
-    }
-    commit({
-      ...p,
-      tracks: p.tracks.filter((t) => t.id !== trackId),
-      clips: p.clips
-        .filter((c) => c.trackId !== trackId)
-        .map((c) => (c.linkId && groups.has(c.linkId) ? { ...c, linkId: undefined } : c)),
-    });
   }
   function over(e: React.DragEvent, trackId: string) {
     if (
@@ -445,14 +478,14 @@ export default memo(function Timeline({
       <div className="timeline-toolbar">
         <div className="tool-group">
           <IconButton
-            label="선택 도구 (V)"
+            label="선택 도구"
             active={tool === 'select'}
             onClick={() => setTool('select')}
           >
             <MousePointer2 size={16} />
           </IconButton>
           <IconButton
-            label="분할 도구 (B) · 클릭한 위치에서 분할"
+            label="분할 도구 · 클릭한 위치에서 분할"
             active={tool === 'split'}
             onClick={() => setTool('split')}
           >
@@ -471,11 +504,52 @@ export default memo(function Timeline({
           >
             <Scissors size={14} /> 분할
           </button>
-          <IconButton label="복제 (Ctrl/Cmd+D)" disabled={!canEdit} onClick={duplicate}>
+          <IconButton label="복사 (C / Ctrl/Cmd+C)" disabled={!selected.length} onClick={copy}>
             <Copy size={15} />
           </IconButton>
+          <IconButton label="붙여넣기 (Ctrl/Cmd+V)" disabled={!canPaste} onClick={() => paste()}>
+            <ClipboardPaste size={15} />
+          </IconButton>
+          <div className="track-menu-wrap" ref={pastePopup}>
+            <button
+              className="text-tool"
+              disabled={!canPaste}
+              aria-label="붙여넣기 방식"
+              aria-expanded={pasteMenu}
+              aria-controls="paste-menu"
+              onClick={() => setPasteMenu(!pasteMenu)}
+            >
+              ▾
+            </button>
+            {pasteMenu ? (
+              <div className="small-menu" id="paste-menu">
+                {(
+                  [
+                    ['insert', '삽입 (V)'],
+                    ['append', '끝에 추가 (A)'],
+                    ['overwrite', '덮어쓰기 (B)'],
+                    ['replace', '선택 교체 (R)'],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    disabled={mode === 'replace' && !canEdit}
+                    onClick={() => {
+                      setPasteMenu(false);
+                      paste(mode);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <IconButton label="복제 (Ctrl/Cmd+Shift+D)" disabled={!canEdit} onClick={duplicate}>
+            <Files size={15} />
+          </IconButton>
           <IconButton
-            label="삭제 · 빈 공간 유지 (Delete)"
+            label="삭제 · 빈 공간 유지 (Z / Delete)"
             disabled={!canEdit}
             onClick={() => remove()}
           >
@@ -483,13 +557,14 @@ export default memo(function Timeline({
           </IconButton>
           <button
             className="text-tool ripple-tool"
+            title="리플 삭제 (X) · 전체 트랙의 시간 구간 제거"
             disabled={!canEdit}
             onClick={() => remove(true)}
           >
             리플 삭제
           </button>
           <span className="toolbar-divider" />
-          <IconButton label="스냅 (S)" active={snap} onClick={() => setSnap(!snap)}>
+          <IconButton label="스냅 (Ctrl/Cmd+P)" active={snap} onClick={() => setSnap(!snap)}>
             <Magnet size={16} />
           </IconButton>
         </div>
@@ -665,7 +740,7 @@ export default memo(function Timeline({
                   </IconButton>
                   <IconButton
                     label={`${track.name} 트랙 삭제`}
-                    onClick={() => trackDelete(track.id)}
+                    onClick={() => removeTrack(track.id)}
                   >
                     <Trash2 size={12} />
                   </IconButton>
@@ -714,6 +789,10 @@ export default memo(function Timeline({
                         onPointerDown={(e) => dragClip(e, c)}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (ignoreClick.current) {
+                            ignoreClick.current = false;
+                            return;
+                          }
                           if (tool === 'split') splitAction();
                         }}
                         onKeyDown={(e) => {

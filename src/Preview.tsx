@@ -6,6 +6,7 @@ import { createEngine, files } from './engine';
 import { IconButton } from './ui';
 import { fitPreview } from './geometry';
 import TimeInput from './TimeInput';
+import { shortcutKey } from './shortcuts';
 type Props = {
   project: Project;
   time: number;
@@ -50,6 +51,8 @@ export default function Preview({
     latest = useRef({ p, time, playing });
   latest.current = { p, time, playing };
   const [error, setError] = useState('');
+  const cancelGesture = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => cancelGesture.current?.(), [p.id]);
   const [bounds, setBounds] = useState({ width: 640, height: 360 });
   const [quality, setQuality] = useState(1),
     [cropMode, setCropMode] = useState(false),
@@ -137,6 +140,7 @@ export default function Preview({
     event.stopPropagation();
     event.preventDefault();
     if (!selectedText || !stage.current || locked || event.button !== 0) return;
+    cancelGesture.current?.();
     const base = p,
       clip = selectedText,
       startX = event.clientX,
@@ -183,7 +187,10 @@ export default function Preview({
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', end);
       target.removeEventListener('pointercancel', cancel);
+      target.removeEventListener('lostpointercapture', cancel);
+      window.removeEventListener('blur', cancel);
       window.removeEventListener('keydown', key);
+      cancelGesture.current = undefined;
       if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
     };
     const end = () => {
@@ -197,17 +204,26 @@ export default function Preview({
       target.style.left = `${clip.x * 100}%`;
       target.style.top = `${clip.y * 100}%`;
       renderPreview(base);
-      update(base);
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         cancel();
-      }
+      } else if (
+        !e.isComposing &&
+        !(e.target as HTMLElement)?.closest('input,textarea,select') &&
+        (e.ctrlKey ||
+          e.metaKey ||
+          ['s', 'x', 'z', 'c', 'v', 'b', 'a', 'r', 'delete', 'backspace'].includes(shortcutKey(e)))
+      )
+        cancel();
     };
     target.addEventListener('pointermove', move);
     target.addEventListener('pointerup', end, { once: true });
     target.addEventListener('pointercancel', cancel, { once: true });
+    target.addEventListener('lostpointercapture', cancel, { once: true });
+    window.addEventListener('blur', cancel);
+    cancelGesture.current = cancel;
     window.addEventListener('keydown', key);
   }
   const shown = gesture ?? selectedText;

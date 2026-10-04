@@ -66,7 +66,7 @@ test('crop handles, flip, quality, marquee, locking, solo, normalization and sto
   expect(pair[0].duration).toBe(pair[1].duration);
   await page.getByRole('button', { name: '원본 오디오 잠금', exact: true }).click();
   await expect(
-    page.getByRole('button', { name: '삭제 · 빈 공간 유지 (Delete)', exact: true }),
+    page.getByRole('button', { name: '삭제 · 빈 공간 유지 (Z / Delete)', exact: true }),
   ).toBeDisabled();
   await expect(page.getByLabel('클립 속도')).toBeDisabled();
   await page.getByRole('button', { name: '원본 오디오 잠금 해제', exact: true }).click();

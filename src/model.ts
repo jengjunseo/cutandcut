@@ -342,11 +342,27 @@ export function paste(p: Project, copied: Clip[], at: number, activeTrack?: stri
   const next = structuredClone(p);
   const offset = at - Math.min(...copied.map((c) => c.start));
   const groups = new Map<string, string>();
+  const restoredTracks = new Map<string, Track>();
   for (const c of copied) {
-    const track =
+    let track =
       copied.every((x) => x.trackId === c.trackId) && activeTrack
         ? next.tracks.find((t) => t.id === activeTrack)
         : next.tracks.find((t) => t.id === c.trackId);
+    if (!track) {
+      track = restoredTracks.get(c.trackId);
+      if (!track) {
+        track = {
+          id: id(),
+          name: c.kind === 'audio' ? '붙여넣기 오디오' : '붙여넣기 영상',
+          kind: c.kind === 'audio' ? 'audio' : 'visual',
+          locked: false,
+          hidden: false,
+          muted: false,
+        };
+        restoredTracks.set(c.trackId, track);
+        next.tracks.push(track);
+      }
+    }
     if (!track || track.locked || track.kind !== (c.kind === 'audio' ? 'audio' : 'visual'))
       return p;
     if (c.linkId && !groups.has(c.linkId)) groups.set(c.linkId, id());

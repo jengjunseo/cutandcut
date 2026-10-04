@@ -1714,9 +1714,9 @@ a {
   width: 570px;
 }
 .shortcuts > div {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 15px;
   padding: 9px 0;
   border-bottom: 1px solid #edf2f5;
@@ -1730,7 +1730,9 @@ a {
   font-family: ui-monospace, monospace;
   font-size: 12px;
   padding: 4px 7px;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  justify-self: end;
 }
 .mobile-navigation {
   display: none;
@@ -1977,10 +1979,16 @@ a {
   }
   .timeline-toolbar {
     padding: 0 8px;
-    height: 42px;
+    min-height: 44px;
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 4px;
+    padding-block: 4px;
   }
   .tool-group {
     gap: 2px;
+    max-width: 100%;
+    flex-wrap: wrap;
   }
   .timeline-right {
     gap: 0;
@@ -2081,9 +2089,12 @@ a {
   }
   .shortcuts > div {
     font-size: 9px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
   }
   .shortcuts kbd {
     font-size: 8px;
+    justify-self: start;
   }
   .help-dialog {
     padding: 18px;
