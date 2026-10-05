@@ -24,6 +24,9 @@ import {
   Trash2,
   TriangleAlert,
   Clock3,
+  Settings2,
+  SlidersHorizontal,
+  MoreHorizontal,
 } from 'lucide-react';
 import {
   emptyProject,
@@ -75,6 +78,9 @@ import Inspector from './Inspector';
 import CaptionPanel from './CaptionPanel';
 import AudioMeter from './AudioMeter';
 import RecentProjects from './RecentProjects';
+import EditorPanel from './EditorPanel';
+import EditorSettings from './EditorSettings';
+import { useEditorLayout } from './useEditorLayout';
 import {
   Field,
   IconButton,
@@ -118,6 +124,8 @@ export default function App() {
     [helpOpen, setHelpOpen] = useState(false),
     [projectMenu, setProjectMenu] = useState(false),
     [recentOpen, setRecentOpen] = useState(false),
+    [settingsOpen, setSettingsOpen] = useState(false),
+    [mobilePanel, setMobilePanel] = useState<'library' | 'inspector' | 'tools'>(),
     [processing, setProcessing] = useState(''),
     [switching, setSwitching] = useState(false),
     [dragOver, setDragOver] = useState(false),
@@ -141,6 +149,9 @@ export default function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 6000);
   }, []);
+  const editorLayout = useEditorLayout(notify);
+  const mobile = editorLayout.mobile;
+  const panelBlocking = mobile && mobilePanel === 'tools';
   const commit = useCallback(
     (next: Project) => {
       if (switchBusy.current) return;
@@ -402,6 +413,8 @@ export default function App() {
         exportOpen ||
         helpOpen ||
         recentOpen ||
+        settingsOpen ||
+        target?.closest('[role="dialog"]') ||
         !ready ||
         switchBusy.current
       )
@@ -486,11 +499,16 @@ export default function App() {
           e.preventDefault();
           if (key === '2') {
             setMobileTab('inspector');
-            document.querySelector<HTMLElement>('.inspector-panel')?.focus();
+            if (mobile) setMobilePanel('inspector');
+            else document.querySelector<HTMLElement>('.inspector-panel')?.focus();
           } else if (key === '4') {
             setTab('media');
             setMobileTab('media');
-          } else document.querySelector<HTMLElement>('.timeline-panel')?.focus();
+            if (mobile) setMobilePanel('library');
+          } else {
+            if (mobile) setMobilePanel(undefined);
+            document.querySelector<HTMLElement>('.timeline-panel')?.focus();
+          }
         } else if (focused && (key === 'u' || key === 'i')) {
           e.preventDefault();
           if (e.altKey && key === 'u') removeTrack();
@@ -644,7 +662,10 @@ export default function App() {
           e.preventDefault();
           const width = document.querySelector('.timeline-scroll')?.clientWidth ?? 1200;
           setZoom(
-            Math.min(200, Math.max(8, (width - 240) / Math.max(6, seconds(duration(p)) + 2))),
+            Math.min(
+              200,
+              Math.max(8, (width - (mobile ? 116 : 240)) / Math.max(6, seconds(duration(p)) + 2)),
+            ),
           );
         } else if (key === ',' || key === '.') {
           e.preventDefault();
@@ -863,6 +884,7 @@ export default function App() {
     setSelected([c.id]);
     setActiveTrack(track.id);
     setMobileTab('inspector');
+    if (mobile) setMobilePanel('inspector');
   }
   function applyTransition(kind: Transition['kind'], clipId = selected[0]) {
     const result = setTransition(projectRef.current, clipId, kind, tick(transitionSeconds));
@@ -1075,12 +1097,13 @@ export default function App() {
   }
   return (
     <div
-      className={`app mobile-${mobileTab}`}
+      className={`app mobile-${mobileTab} ${mobile ? 'ui-mobile' : 'ui-standard'} ${mobile && mobilePanel ? 'mobile-panel-open' : ''} ${mobile && editorLayout.height <= 500 && editorLayout.width < 640 ? 'mobile-short-viewport' : ''} ${mobile && editorLayout.tablet ? 'mobile-tablet' : ''} ${mobile && editorLayout.tablet && mobilePanel && mobilePanel !== 'tools' ? 'with-side-panel' : ''}`}
       style={
         {
           '--left-width': `${layout.left}px`,
           '--right-width': `${layout.right}px`,
           '--timeline-height': `${layout.timeline}px`,
+          '--mobile-viewport-height': `${editorLayout.height}px`,
         } as React.CSSProperties
       }
       onDragOver={(e) => {
@@ -1100,7 +1123,7 @@ export default function App() {
         }
       }}
     >
-      <header className="app-header">
+      <header className="app-header" inert={panelBlocking || settingsOpen}>
         <a className="brand" href="./" onClick={(e) => e.preventDefault()} aria-label="CyanCut">
           <span className="brand-symbol">
             <Scissors size={22} strokeWidth={2.2} />
@@ -1134,6 +1157,14 @@ export default function App() {
               >
                 <FolderOpen size={15} />
                 최근 프로젝트 · 저장소
+              </button>
+              <button
+                onClick={() => {
+                  setProjectMenu(false);
+                  setSettingsOpen(true);
+                }}
+              >
+                <Settings2 size={15} /> 앱 설정 · UI 모드
               </button>
               <button
                 onClick={() => {
@@ -1238,6 +1269,7 @@ export default function App() {
         <div className="header-actions">
           <IconButton
             label="실행 취소 (Ctrl/Cmd+Z)"
+            className="mobile-undo"
             disabled={!history.current.past.length}
             onClick={undo}
           >
@@ -1245,12 +1277,22 @@ export default function App() {
           </IconButton>
           <IconButton
             label="다시 실행 (Ctrl/Cmd+Shift+Z)"
+            className="mobile-redo"
             disabled={!history.current.future.length}
             onClick={redo}
           >
             <Redo2 size={18} />
           </IconButton>
           <span className="header-divider" />
+          {mobile ? (
+            <IconButton
+              className="ui-settings-button"
+              label="앱 설정 · UI 모드"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings2 size={18} />
+            </IconButton>
+          ) : null}
           <IconButton
             label="단축키 도움말 (?)"
             className="shortcut-help"
@@ -1270,7 +1312,7 @@ export default function App() {
           </button>
         </div>
       </header>
-      <div className="mobile-navigation">
+      <div className="mobile-navigation" inert={settingsOpen}>
         <button
           className={mobileTab === 'media' ? 'selected' : ''}
           aria-pressed={mobileTab === 'media'}
@@ -1293,349 +1335,362 @@ export default function App() {
           속성
         </button>
       </div>
-      <main className="editor-main">
-        <aside className="library-panel">
-          <div className="library-tabs">
-            {[
-              ['media', Film, '미디어'],
-              ['text', Type, '텍스트'],
-              ['transitions', Layers, '전환'],
-              ['captions', Type, '자막'],
-            ].map(([key, Icon, label]) => {
-              const I = Icon as typeof Film;
-              return (
-                <button
-                  key={key as string}
-                  className={tab === key ? 'selected' : ''}
-                  onClick={() => setTab(key as typeof tab)}
-                  aria-pressed={tab === key}
-                >
-                  <I size={17} />
-                  <span>{label as string}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="library-body">
-            {tab === 'media' ? (
-              <>
-                <div className="library-heading">
-                  <h2>미디어 보관함</h2>
-                  <span className="count-badge">{project.assets.length}</span>
-                </div>
-                <button
-                  className="import-button"
-                  onClick={() => fileInput.current?.click()}
-                  disabled={!!importing || !ready}
-                >
-                  <Plus size={17} /> 미디어 가져오기 <span>⌘ / Ctrl + 선택</span>
-                </button>
-                {assetSelection.length ? (
+      <main className="editor-main" inert={settingsOpen}>
+        <EditorPanel
+          mobile={mobile}
+          open={mobilePanel === 'library'}
+          docked={true}
+          title="추가 도구"
+          close={() => setMobilePanel(undefined)}
+        >
+          <aside className="library-panel">
+            <div className="library-tabs">
+              {[
+                ['media', Film, '미디어'],
+                ['text', Type, '텍스트'],
+                ['transitions', Layers, '전환'],
+                ['captions', Type, '자막'],
+              ].map(([key, Icon, label]) => {
+                const I = Icon as typeof Film;
+                return (
                   <button
-                    className="primary full insert-selection"
-                    disabled={!selectedMedia.length}
-                    onClick={insertSelectedMedia}
+                    key={key as string}
+                    className={tab === key ? 'selected' : ''}
+                    onClick={() => setTab(key as typeof tab)}
+                    aria-pressed={tab === key}
                   >
-                    선택한 미디어 추가 · 영상은 연속 배치
+                    <I size={17} />
+                    <span>{label as string}</span>
                   </button>
-                ) : null}
-                <p className="library-caption">
-                  가져온 파일은 + 또는 배치 선택으로 타임라인에 추가합니다.
-                </p>
-                <div className="output-support" role="status">
-                  <strong>이 기기의 출력 지원</strong>
-                  {startupCaps ? (
-                    <p>
-                      {startupCaps.mp4
-                        ? `MP4 가능${startupCaps.aacFallback ? ' · 로컬 AAC 대체 인코더' : ''}`
-                        : startupCaps.avc
-                          ? 'MP4 AAC 인코더 사용 불가'
-                          : 'MP4 영상 인코더 미지원'}{' '}
-                      · {startupCaps.webm ? 'WebM 가능' : 'WebM 미지원'} · WAV
-                      {startupCaps.mp3 ? ' · MP3' : ''}
-                    </p>
-                  ) : (
-                    <p>{capsError || '실제 인코더 확인 중…'}</p>
-                  )}
-                  {startupCaps && !startupCaps.mp4 ? (
-                    <p>
-                      원본은 업로드하지 않습니다. WebM으로 완성하거나 H.264 인코딩을 지원하는
-                      Chrome/Edge 환경에서 같은 프로젝트를 여세요.
-                    </p>
-                  ) : null}
-                  {startupCaps?.errors && Object.keys(startupCaps.errors).length ? (
-                    <p>
-                      일부 인코더 모듈을 불러오지 못했습니다. WAV와 사용 가능한 형식은 별도로 출력할
-                      수 있습니다.
-                    </p>
-                  ) : null}
-                </div>
-                <label className="import-policy">
-                  <input
-                    type="checkbox"
-                    checked={autoInsert}
-                    onChange={(e) => setAutoInsert(e.target.checked)}
-                  />{' '}
-                  가져오면서 타임라인에 연속 배치
-                </label>
-                <p className="small-note">
-                  해제하면 보관함만 가져옵니다. 이미지·텍스트는 빈 레이어에 배치됩니다.
-                </p>
-                {importing ? (
-                  <div className="import-progress" role="status">
-                    <LoaderCircle size={15} className="spin" />
-                    {importing}
-                    <button className="text-tool" onClick={() => importAbort.current?.abort()}>
-                      가져오기 취소
+                );
+              })}
+            </div>
+            <div className="library-body">
+              {tab === 'media' ? (
+                <>
+                  <div className="library-heading">
+                    <h2>미디어 보관함</h2>
+                    <span className="count-badge">{project.assets.length}</span>
+                  </div>
+                  <button
+                    className="import-button"
+                    onClick={() => fileInput.current?.click()}
+                    disabled={!!importing || !ready}
+                  >
+                    <Plus size={17} /> 미디어 가져오기 <span>⌘ / Ctrl + 선택</span>
+                  </button>
+                  {assetSelection.length ? (
+                    <button
+                      className="primary full insert-selection"
+                      disabled={!selectedMedia.length}
+                      onClick={insertSelectedMedia}
+                    >
+                      선택한 미디어 추가 · 영상은 연속 배치
                     </button>
+                  ) : null}
+                  <p className="library-caption">
+                    가져온 파일은 + 또는 배치 선택으로 타임라인에 추가합니다.
+                  </p>
+                  <div className="output-support" role="status">
+                    <strong>이 기기의 출력 지원</strong>
+                    {startupCaps ? (
+                      <p>
+                        {startupCaps.mp4
+                          ? `MP4 가능${startupCaps.aacFallback ? ' · 로컬 AAC 대체 인코더' : ''}`
+                          : startupCaps.avc
+                            ? 'MP4 AAC 인코더 사용 불가'
+                            : 'MP4 영상 인코더 미지원'}{' '}
+                        · {startupCaps.webm ? 'WebM 가능' : 'WebM 미지원'} · WAV
+                        {startupCaps.mp3 ? ' · MP3' : ''}
+                      </p>
+                    ) : (
+                      <p>{capsError || '실제 인코더 확인 중…'}</p>
+                    )}
+                    {startupCaps && !startupCaps.mp4 ? (
+                      <p>
+                        원본은 업로드하지 않습니다. WebM으로 완성하거나 H.264 인코딩을 지원하는
+                        Chrome/Edge 환경에서 같은 프로젝트를 여세요.
+                      </p>
+                    ) : null}
+                    {startupCaps?.errors && Object.keys(startupCaps.errors).length ? (
+                      <p>
+                        일부 인코더 모듈을 불러오지 못했습니다. WAV와 사용 가능한 형식은 별도로
+                        출력할 수 있습니다.
+                      </p>
+                    ) : null}
                   </div>
-                ) : null}
-                {missing.length ? (
-                  <div className="missing-banner">
-                    <Link2 size={15} />
-                    <div>
-                      <strong>원본 {missing.length}개 재연결 필요</strong>
-                      <p>이름·크기·길이가 같은 파일을 가져오세요.</p>
-                      <button onClick={() => fileInput.current?.click()}>
-                        파일 재연결 <ArrowRight size={12} />
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-                {importErrors.length ? (
-                  <details className="import-errors" open>
-                    <summary>가져오기 오류 {importErrors.length}개 · 편집 유지됨</summary>
-                    {importErrors.map((row, i) => (
-                      <div className="import-error-row" key={i}>
-                        <strong title={row.file.name}>{row.file.name}</strong>
-                        <p>{row.message}</p>
-                        <button
-                          className="secondary"
-                          disabled={!!importing}
-                          onClick={() => void importFiles([row.file])}
-                        >
-                          다시 시도
-                        </button>
-                      </div>
-                    ))}
-                    <button className="text-tool" onClick={() => setImportErrors([])}>
-                      오류 목록 지우기
-                    </button>
-                  </details>
-                ) : null}
-                {project.assets.length ? (
-                  <div className="asset-grid">
-                    {project.assets.map((a) => (
-                      <div
-                        key={a.id}
-                        className={`asset-card ${files.has(a.id) ? '' : 'missing'}`}
-                        draggable={files.has(a.id)}
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData('application/cyancut-asset', a.id);
-                          e.dataTransfer.setData('application/cyancut-asset-id-' + a.id, '1');
-                          e.dataTransfer.effectAllowed = 'copy';
-                        }}
-                      >
-                        <label className="asset-selection">
-                          <input
-                            type="checkbox"
-                            aria-label={`${a.name} 배치 선택`}
-                            checked={assetSelection.includes(a.id)}
-                            onChange={(e) =>
-                              setAssetSelection((ids) =>
-                                e.target.checked ? [...ids, a.id] : ids.filter((id) => id !== a.id),
-                              )
-                            }
-                          />
-                          배치 선택
-                        </label>
-                        <div className="asset-preview">
-                          {a.thumbnail ? (
-                            <img src={a.thumbnail} alt={a.name} />
-                          ) : (
-                            <div className="audio-art">
-                              <Music size={23} />
-                              {a.waveform ? (
-                                <svg viewBox="0 0 120 30" preserveAspectRatio="none">
-                                  {a.waveform.map((v, i) => (
-                                    <line
-                                      key={i}
-                                      x1={i}
-                                      x2={i}
-                                      y1={15 - v * 14}
-                                      y2={15 + v * 14}
-                                      stroke="currentColor"
-                                    />
-                                  ))}
-                                </svg>
-                              ) : null}
-                            </div>
-                          )}
-                          <span className="asset-duration">
-                            {a.kind === 'image' ? '이미지' : `${seconds(a.duration).toFixed(1)}s`}
-                          </span>
-                          <button
-                            className="asset-add"
-                            aria-label={`${a.name} 타임라인에 추가`}
-                            title="타임라인에 추가"
-                            disabled={!files.has(a.id)}
-                            onClick={() => appendAsset(a.id)}
-                          >
-                            <Plus size={14} />
-                          </button>
-                        </div>
-                        <strong title={a.name}>{a.name}</strong>
-                        <span
-                          className="asset-details"
-                          title={`${a.container} · ${a.videoCodec || a.audioCodec} · ${formatBytes(a.size)}`}
-                        >
-                          {a.container} · {a.videoCodec || a.audioCodec} · {formatBytes(a.size)}
-                        </span>
-                        <details className="asset-diagnostics">
-                          <summary>파일 정보</summary>
-                          {a.width} × {a.height} · {seconds(a.duration).toFixed(3)}초<br />
-                          영상: {a.videoCodec || '없음'} / 오디오: {a.audioCodec || '없음'}
-                        </details>
-                        <span className="asset-storage">
-                          {a.stored ? '원본 기기에 저장됨' : '원본 별도 보관 필요'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-library">
-                    <div className="empty-library-icon">
-                      <FolderOpen size={26} strokeWidth={1.2} />
-                    </div>
-                    <strong>아직 비어 있어요.</strong>
-                    <p>
-                      첫 번째 파일을 가져오면
-                      <br />
-                      보관함에서 원하는 미디어를 배치하세요.
-                    </p>
-                    <div className="format-tags">
-                      <span>MP4</span>
-                      <span>PNG</span>
-                      <span>MP3</span>
-                    </div>
-                  </div>
-                )}
-                <div className="library-storage">
-                  <label className="check">
+                  <label className="import-policy">
                     <input
                       type="checkbox"
-                      checked={persistMedia}
-                      onChange={(e) => setPersistMedia(e.target.checked)}
+                      checked={autoInsert}
+                      onChange={(e) => setAutoInsert(e.target.checked)}
                     />{' '}
-                    가져온 원본도 기기에 저장
+                    가져오면서 타임라인에 연속 배치
                   </label>
-                  <p>
-                    파일당 200MB 이하 · 저장소 여유에 따라 적용
-                    <br />
-                    프로젝트 JSON에는 원본이 포함되지 않습니다.
+                  <p className="small-note">
+                    해제하면 보관함만 가져옵니다. 이미지·텍스트는 빈 레이어에 배치됩니다.
                   </p>
-                </div>
-              </>
-            ) : tab === 'text' ? (
-              <>
-                <div className="library-heading">
-                  <h2>텍스트 추가</h2>
-                  <Type size={17} />
-                </div>
-                <p className="library-caption">한글 기본 폰트 · 자유로운 위치 조절</p>
-                <button className="text-preset title-preset" onClick={() => addText('title')}>
-                  <span>이야기의 제목</span>
-                  <small>
-                    제목 추가 <Plus size={14} />
-                  </small>
-                </button>
-                <button className="text-preset subtitle-preset" onClick={() => addText('subtitle')}>
-                  <span>장면을 설명하는 한 줄</span>
-                  <small>
-                    자막 추가 <Plus size={14} />
-                  </small>
-                </button>
-                <button className="text-preset caption-preset" onClick={() => addText('caption')}>
-                  <span>기억하고 싶은 순간</span>
-                  <small>
-                    배경 박스 텍스트 <Plus size={14} />
-                  </small>
-                </button>
-                <p className="small-note">
-                  텍스트는 5초 클립으로 재생헤드에 추가됩니다. 속성 패널에서 내용·스타일·길이를
-                  변경하고 미리보기에서 위치를 드래그하세요. 입력은 포커스를 벗어나면 적용됩니다.
-                </p>
-              </>
-            ) : tab === 'captions' ? (
-              <CaptionPanel
-                p={project}
-                selected={selected}
-                commit={commit}
-                select={setSelected}
-                seek={seek}
-                notify={notify}
-              />
-            ) : (
-              <>
-                <div className="library-heading">
-                  <h2>자연스러운 장면 전환</h2>
-                </div>
-                <p className="library-caption">다음 클립을 선택하거나 끌어놓으세요.</p>
-                {[
-                  ['dissolve', '크로스 디졸브'],
-                  ['black', '검정으로 페이드'],
-                  ['white', '흰색으로 페이드'],
-                ].map(([kind, label]) => (
-                  <button
-                    key={kind}
-                    className="transition-card"
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData('application/cyancut-transition', kind);
-                    }}
-                    onClick={() => applyTransition(kind as Transition['kind'])}
-                  >
-                    <span className={`transition-art ${kind}`}>
-                      <span />
-                      <span />
-                    </span>
-                    <span>{label}</span>
-                    <Plus size={14} />
+                  {importing ? (
+                    <div className="import-progress" role="status">
+                      <LoaderCircle size={15} className="spin" />
+                      {importing}
+                      <button className="text-tool" onClick={() => importAbort.current?.abort()}>
+                        가져오기 취소
+                      </button>
+                    </div>
+                  ) : null}
+                  {missing.length ? (
+                    <div className="missing-banner">
+                      <Link2 size={15} />
+                      <div>
+                        <strong>원본 {missing.length}개 재연결 필요</strong>
+                        <p>이름·크기·길이가 같은 파일을 가져오세요.</p>
+                        <button onClick={() => fileInput.current?.click()}>
+                          파일 재연결 <ArrowRight size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {importErrors.length ? (
+                    <details className="import-errors" open>
+                      <summary>가져오기 오류 {importErrors.length}개 · 편집 유지됨</summary>
+                      {importErrors.map((row, i) => (
+                        <div className="import-error-row" key={i}>
+                          <strong title={row.file.name}>{row.file.name}</strong>
+                          <p>{row.message}</p>
+                          <button
+                            className="secondary"
+                            disabled={!!importing}
+                            onClick={() => void importFiles([row.file])}
+                          >
+                            다시 시도
+                          </button>
+                        </div>
+                      ))}
+                      <button className="text-tool" onClick={() => setImportErrors([])}>
+                        오류 목록 지우기
+                      </button>
+                    </details>
+                  ) : null}
+                  {project.assets.length ? (
+                    <div className="asset-grid">
+                      {project.assets.map((a) => (
+                        <div
+                          key={a.id}
+                          className={`asset-card ${files.has(a.id) ? '' : 'missing'}`}
+                          draggable={files.has(a.id)}
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('application/cyancut-asset', a.id);
+                            e.dataTransfer.setData('application/cyancut-asset-id-' + a.id, '1');
+                            e.dataTransfer.effectAllowed = 'copy';
+                          }}
+                        >
+                          <label className="asset-selection">
+                            <input
+                              type="checkbox"
+                              aria-label={`${a.name} 배치 선택`}
+                              checked={assetSelection.includes(a.id)}
+                              onChange={(e) =>
+                                setAssetSelection((ids) =>
+                                  e.target.checked
+                                    ? [...ids, a.id]
+                                    : ids.filter((id) => id !== a.id),
+                                )
+                              }
+                            />
+                            배치 선택
+                          </label>
+                          <div className="asset-preview">
+                            {a.thumbnail ? (
+                              <img src={a.thumbnail} alt={a.name} />
+                            ) : (
+                              <div className="audio-art">
+                                <Music size={23} />
+                                {a.waveform ? (
+                                  <svg viewBox="0 0 120 30" preserveAspectRatio="none">
+                                    {a.waveform.map((v, i) => (
+                                      <line
+                                        key={i}
+                                        x1={i}
+                                        x2={i}
+                                        y1={15 - v * 14}
+                                        y2={15 + v * 14}
+                                        stroke="currentColor"
+                                      />
+                                    ))}
+                                  </svg>
+                                ) : null}
+                              </div>
+                            )}
+                            <span className="asset-duration">
+                              {a.kind === 'image' ? '이미지' : `${seconds(a.duration).toFixed(1)}s`}
+                            </span>
+                            <button
+                              className="asset-add"
+                              aria-label={`${a.name} 타임라인에 추가`}
+                              title="타임라인에 추가"
+                              disabled={!files.has(a.id)}
+                              onClick={() => appendAsset(a.id)}
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
+                          <strong title={a.name}>{a.name}</strong>
+                          <span
+                            className="asset-details"
+                            title={`${a.container} · ${a.videoCodec || a.audioCodec} · ${formatBytes(a.size)}`}
+                          >
+                            {a.container} · {a.videoCodec || a.audioCodec} · {formatBytes(a.size)}
+                          </span>
+                          <details className="asset-diagnostics">
+                            <summary>파일 정보</summary>
+                            {a.width} × {a.height} · {seconds(a.duration).toFixed(3)}초<br />
+                            영상: {a.videoCodec || '없음'} / 오디오: {a.audioCodec || '없음'}
+                          </details>
+                          <span className="asset-storage">
+                            {a.stored ? '원본 기기에 저장됨' : '원본 별도 보관 필요'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-library">
+                      <div className="empty-library-icon">
+                        <FolderOpen size={26} strokeWidth={1.2} />
+                      </div>
+                      <strong>아직 비어 있어요.</strong>
+                      <p>
+                        첫 번째 파일을 가져오면
+                        <br />
+                        보관함에서 원하는 미디어를 배치하세요.
+                      </p>
+                      <div className="format-tags">
+                        <span>MP4</span>
+                        <span>PNG</span>
+                        <span>MP3</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="library-storage">
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={persistMedia}
+                        onChange={(e) => setPersistMedia(e.target.checked)}
+                      />{' '}
+                      가져온 원본도 기기에 저장
+                    </label>
+                    <p>
+                      파일당 200MB 이하 · 저장소 여유에 따라 적용
+                      <br />
+                      프로젝트 JSON에는 원본이 포함되지 않습니다.
+                    </p>
+                  </div>
+                </>
+              ) : tab === 'text' ? (
+                <>
+                  <div className="library-heading">
+                    <h2>텍스트 추가</h2>
+                    <Type size={17} />
+                  </div>
+                  <p className="library-caption">한글 기본 폰트 · 자유로운 위치 조절</p>
+                  <button className="text-preset title-preset" onClick={() => addText('title')}>
+                    <span>이야기의 제목</span>
+                    <small>
+                      제목 추가 <Plus size={14} />
+                    </small>
                   </button>
-                ))}
-                <Field label="전환 길이 (초)">
-                  <input
-                    type="number"
-                    min={0.05}
-                    max={3}
-                    step={0.05}
-                    value={transitionSeconds}
-                    onChange={(e) =>
-                      setTransitionSeconds(
-                        Math.max(0.05, Math.min(3, Number(e.target.value) || 0.5)),
-                      )
-                    }
-                  />
-                </Field>
-                <div className="info-box">
-                  <Layers size={17} />
-                  <p>
-                    전체 영상 길이는 유지됩니다. 디졸브는 다음 영상의 잘라낸 앞부분을 사용합니다.
-                    부족하면 길이를 제한합니다.
+                  <button
+                    className="text-preset subtitle-preset"
+                    onClick={() => addText('subtitle')}
+                  >
+                    <span>장면을 설명하는 한 줄</span>
+                    <small>
+                      자막 추가 <Plus size={14} />
+                    </small>
+                  </button>
+                  <button className="text-preset caption-preset" onClick={() => addText('caption')}>
+                    <span>기억하고 싶은 순간</span>
+                    <small>
+                      배경 박스 텍스트 <Plus size={14} />
+                    </small>
+                  </button>
+                  <p className="small-note">
+                    텍스트는 5초 클립으로 재생헤드에 추가됩니다. 속성 패널에서 내용·스타일·길이를
+                    변경하고 미리보기에서 위치를 드래그하세요. 입력은 포커스를 벗어나면 적용됩니다.
                   </p>
-                </div>
-                <p className="small-note">
-                  동일 트랙의 인접한 두 클립에 적용됩니다. 검정·흰색 전환은 접점 전후에 각각 설정한
-                  길이만큼 페이드합니다.
-                </p>
-              </>
-            )}
-          </div>
-          <div className="library-footer">
-            <ShieldCheck size={15} />
-            <span>로컬 우선 · 업로드 없음</span>
-          </div>
-        </aside>
+                </>
+              ) : tab === 'captions' ? (
+                <CaptionPanel
+                  p={project}
+                  selected={selected}
+                  commit={commit}
+                  select={setSelected}
+                  seek={seek}
+                  notify={notify}
+                />
+              ) : (
+                <>
+                  <div className="library-heading">
+                    <h2>자연스러운 장면 전환</h2>
+                  </div>
+                  <p className="library-caption">다음 클립을 선택하거나 끌어놓으세요.</p>
+                  {[
+                    ['dissolve', '크로스 디졸브'],
+                    ['black', '검정으로 페이드'],
+                    ['white', '흰색으로 페이드'],
+                  ].map(([kind, label]) => (
+                    <button
+                      key={kind}
+                      className="transition-card"
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('application/cyancut-transition', kind);
+                      }}
+                      onClick={() => applyTransition(kind as Transition['kind'])}
+                    >
+                      <span className={`transition-art ${kind}`}>
+                        <span />
+                        <span />
+                      </span>
+                      <span>{label}</span>
+                      <Plus size={14} />
+                    </button>
+                  ))}
+                  <Field label="전환 길이 (초)">
+                    <input
+                      type="number"
+                      min={0.05}
+                      max={3}
+                      step={0.05}
+                      value={transitionSeconds}
+                      onChange={(e) =>
+                        setTransitionSeconds(
+                          Math.max(0.05, Math.min(3, Number(e.target.value) || 0.5)),
+                        )
+                      }
+                    />
+                  </Field>
+                  <div className="info-box">
+                    <Layers size={17} />
+                    <p>
+                      전체 영상 길이는 유지됩니다. 디졸브는 다음 영상의 잘라낸 앞부분을 사용합니다.
+                      부족하면 길이를 제한합니다.
+                    </p>
+                  </div>
+                  <p className="small-note">
+                    동일 트랙의 인접한 두 클립에 적용됩니다. 검정·흰색 전환은 접점 전후에 각각
+                    설정한 길이만큼 페이드합니다.
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="library-footer">
+              <ShieldCheck size={15} />
+              <span>로컬 우선 · 업로드 없음</span>
+            </div>
+          </aside>
+        </EditorPanel>
         <div
           className="panel-resizer left-resizer"
           role="separator"
@@ -1646,6 +1701,8 @@ export default function App() {
           onPointerDown={(e) => resize(e, 'left')}
         />
         <Preview
+          mobile={mobile}
+          blocked={panelBlocking}
           mediaActionLabel={selectedMedia.length ? '선택한 미디어 추가' : '보관함에서 배치하기'}
           mediaAction={
             selectedMedia.length
@@ -1653,6 +1710,7 @@ export default function App() {
               : () => {
                   setTab('media');
                   setMobileTab('media');
+                  if (mobile) setMobilePanel('library');
                   requestAnimationFrame(() =>
                     document
                       .querySelector('.asset-grid')
@@ -1694,16 +1752,25 @@ export default function App() {
           onKeyDown={(e) => resizeKey(e, 'right')}
           onPointerDown={(e) => resize(e, 'right')}
         />
-        <Inspector
-          project={project}
-          selected={selected}
-          commit={commit}
-          notify={notify}
-          onSelect={setSelected}
-        />
+        <EditorPanel
+          mobile={mobile}
+          open={mobilePanel === 'inspector'}
+          docked={true}
+          title={selected.length ? '클립 속성' : '프로젝트 설정'}
+          close={() => setMobilePanel(undefined)}
+        >
+          <Inspector
+            project={project}
+            selected={selected}
+            commit={commit}
+            notify={notify}
+            onSelect={setSelected}
+          />
+        </EditorPanel>
       </main>
       <div
         className="timeline-resizer"
+        inert={panelBlocking || settingsOpen}
         role="separator"
         aria-label="타임라인 높이"
         tabIndex={0}
@@ -1714,6 +1781,11 @@ export default function App() {
         <span />
       </div>
       <Timeline
+        mobile={mobile}
+        blocked={settingsOpen}
+        toolsOpen={mobilePanel === 'tools'}
+        closeTools={() => setMobilePanel(undefined)}
+        openTools={() => setMobilePanel('tools')}
         project={draft ?? project}
         time={time}
         selected={selected}
@@ -1741,6 +1813,55 @@ export default function App() {
         setZoom={setZoom}
         notify={notify}
       />
+      {mobile ? (
+        <nav
+          className="mobile-dock"
+          aria-label="모바일 편집 도구"
+          inert={panelBlocking || settingsOpen}
+        >
+          <button
+            aria-pressed={mobilePanel === 'library' && tab === 'media'}
+            onClick={() => {
+              setTab('media');
+              setMobilePanel('library');
+            }}
+          >
+            <Film size={21} />
+            <span>미디어</span>
+          </button>
+          <button
+            aria-pressed={mobilePanel === 'library' && tab === 'text'}
+            onClick={() => {
+              setTab('text');
+              setMobilePanel('library');
+            }}
+          >
+            <Type size={21} />
+            <span>텍스트</span>
+          </button>
+          <button
+            aria-pressed={mobilePanel === 'inspector' && !!selected.length}
+            onClick={() => setMobilePanel('inspector')}
+          >
+            <SlidersHorizontal size={21} />
+            <span>속성</span>
+          </button>
+          <button
+            aria-pressed={mobilePanel === 'inspector' && !selected.length}
+            onClick={() => {
+              setSelected([]);
+              setMobilePanel('inspector');
+            }}
+          >
+            <Settings2 size={21} />
+            <span>화면</span>
+          </button>
+          <button aria-pressed={mobilePanel === 'tools'} onClick={() => setMobilePanel('tools')}>
+            <MoreHorizontal size={21} />
+            <span>더보기</span>
+          </button>
+        </nav>
+      ) : null}
       <input
         ref={fileInput}
         type="file"
@@ -1796,6 +1917,24 @@ export default function App() {
             onClose={() => setExportOpen(false)}
           />
         </Suspense>
+      ) : null}
+      {settingsOpen ? (
+        <EditorSettings
+          mode={editorLayout.mode}
+          changeMode={(mode) => {
+            setMobilePanel(undefined);
+            editorLayout.changeMode(mode);
+          }}
+          close={() => {
+            setSettingsOpen(false);
+            requestAnimationFrame(() => {
+              const button =
+                document.querySelector<HTMLButtonElement>('.ui-settings-button') ??
+                projectPopup.current?.querySelector<HTMLButtonElement>(':scope > button');
+              button?.focus();
+            });
+          }}
+        />
       ) : null}
       {switching || !ready ? (
         <div className="modal-backdrop" role="status" aria-live="polite">

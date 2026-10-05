@@ -43,7 +43,14 @@ import {
 import { IconButton, NameInput, usePopup } from './ui';
 import PrecisionTools from './PrecisionTools';
 import { shortcutKey } from './shortcuts';
+import EditorPanel from './EditorPanel';
+import TrackSettings from './TrackSettings';
 type Props = {
+  mobile?: boolean;
+  blocked?: boolean;
+  toolsOpen?: boolean;
+  closeTools?: () => void;
+  openTools?: () => void;
   project: Project;
   time: number;
   selected: string[];
@@ -72,6 +79,11 @@ type Props = {
   notify: (s: string) => void;
 };
 export default memo(function Timeline({
+  mobile = false,
+  blocked = false,
+  toolsOpen = false,
+  closeTools = () => {},
+  openTools = () => {},
   project: p,
   time,
   selected,
@@ -100,8 +112,23 @@ export default memo(function Timeline({
   notify,
 }: Props) {
   const scroll = useRef<HTMLDivElement>(null);
+  const headerWidth = mobile ? 76 : 200;
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [trackEditor, setTrackEditor] = useState<string>();
+  const editedTrack = p.tracks.find((t) => t.id === trackEditor);
   const cancelGesture = useRef<(() => void) | undefined>(undefined);
   useEffect(() => () => cancelGesture.current?.(), [p.id]);
+  useEffect(() => {
+    cancelGesture.current?.();
+    setMultiSelect(false);
+  }, [mobile]);
+  useEffect(() => {
+    if (!toolsOpen) {
+      setTrackEditor(undefined);
+      setPasteMenu(false);
+      setTrackMenu(false);
+    }
+  }, [toolsOpen]);
   const [scrollLeft, setScrollLeft] = useState(0),
     [viewport, setViewport] = useState(1200),
     [ghost, setGhost] = useState<{
@@ -142,7 +169,7 @@ export default memo(function Timeline({
     function update(schedule = true) {
       const r = node.getBoundingClientRect();
       if (x > r.right - 32) node.scrollLeft += 12;
-      else if (x < r.left + 232) node.scrollLeft -= 12;
+      else if (x < r.left + headerWidth + 32) node.scrollLeft -= 12;
       if (y > r.bottom - 24) node.scrollTop += 10;
       else if (y < r.top + 24) node.scrollTop -= 10;
       const cx = x - r.left + node.scrollLeft,
@@ -162,8 +189,8 @@ export default memo(function Timeline({
           const bounds = row.getBoundingClientRect(),
             top = bounds.top - r.top + node.scrollTop;
           return (
-            200 + seconds(c.start + c.duration) * zoom > area.x &&
-            200 + seconds(c.start) * zoom < area.x + area.width &&
+            headerWidth + seconds(c.start + c.duration) * zoom > area.x &&
+            headerWidth + seconds(c.start) * zoom < area.x + area.width &&
             top + bounds.height > area.y &&
             top < area.y + area.height
           );
@@ -227,7 +254,12 @@ export default memo(function Timeline({
   useEffect(() => {
     if (!p.clips.length || fittedProject.current === p.id) return;
     fittedProject.current = p.id;
-    setZoom(Math.max(8, Math.min(200, (viewport - 240) / Math.max(6, seconds(duration(p)) + 1))));
+    setZoom(
+      Math.max(
+        8,
+        Math.min(200, (viewport - headerWidth - 40) / Math.max(6, seconds(duration(p)) + 1)),
+      ),
+    );
   }, [p.id, p.clips.length, viewport]);
   const canEdit = editable(p, linked(p, selected));
   const overlapping = useMemo(() => {
@@ -246,7 +278,7 @@ export default memo(function Timeline({
   const canSplit =
     canEdit && linked(p, selected).some((c) => c.start < time && c.start + c.duration > time);
   const timelineLength = Math.max(6, seconds(duration(p)) + 2);
-  const width = Math.max(viewport - 200, timelineLength * zoom);
+  const width = Math.max(viewport - headerWidth, timelineLength * zoom);
   const step = zoom >= 100 ? 1 : zoom >= 40 ? 2 : zoom >= 16 ? 5 : 10;
   const ticks = Array.from({ length: Math.floor(width / zoom / step) + 1 }, (_, i) => i * step);
   const icon = (c: Clip) =>
@@ -266,7 +298,7 @@ export default memo(function Timeline({
         (clientX -
           scroll.current!.getBoundingClientRect().left +
           scroll.current!.scrollLeft -
-          200) /
+          headerWidth) /
           zoom,
       ),
     );
@@ -274,6 +306,18 @@ export default memo(function Timeline({
     if (e.button !== 0) return;
     cancelGesture.current?.();
     e.stopPropagation();
+    if (mobile && (document.activeElement as HTMLElement)?.matches('input,textarea,select')) {
+      (document.activeElement as HTMLElement).blur();
+      return;
+    }
+    if (
+      mobile &&
+      tool === 'select' &&
+      e.pointerType === 'touch' &&
+      !edge &&
+      (!selected.includes(c.id) || multiSelect)
+    )
+      return;
     setActiveTrack(c.trackId);
     if (p.tracks.find((t) => t.id === c.trackId)?.locked) {
       notify('잠긴 트랙은 편집할 수 없습니다.');
@@ -347,8 +391,8 @@ export default memo(function Timeline({
       const s = scroll.current!;
       const rect = s.getBoundingClientRect();
       if (clientX > rect.right - 45) s.scrollLeft += Math.min(22, (clientX - rect.right + 45) / 2);
-      else if (clientX < rect.left + 210)
-        s.scrollLeft -= Math.min(22, (rect.left + 210 - clientX) / 2);
+      else if (clientX < rect.left + headerWidth + 10)
+        s.scrollLeft -= Math.min(22, (rect.left + headerWidth + 10 - clientX) / 2);
       if (moved) update();
       animation = requestAnimationFrame(loop);
     };
@@ -474,173 +518,263 @@ export default memo(function Timeline({
     seek(Math.min(duration(p), at(e.clientX)));
   }
   return (
-    <section className="timeline-panel" tabIndex={0} aria-label="편집 타임라인">
-      <div className="timeline-toolbar">
-        <div className="tool-group">
-          <IconButton
-            label="선택 도구"
-            active={tool === 'select'}
-            onClick={() => setTool('select')}
-          >
-            <MousePointer2 size={16} />
-          </IconButton>
-          <IconButton
-            label="분할 도구 · 클릭한 위치에서 분할"
-            active={tool === 'split'}
-            onClick={() => setTool('split')}
-          >
-            <Scissors size={16} />
-          </IconButton>
-          <span className="toolbar-divider" />
-          <button
-            className="text-tool"
-            disabled={!canSplit}
-            title={
-              !canEdit
-                ? '선택한 클립과 링크된 트랙의 잠금을 해제하세요.'
-                : '클립 내부로 재생헤드를 이동해 분할'
-            }
-            onClick={splitAction}
-          >
-            <Scissors size={14} /> 분할
+    <section
+      className={`timeline-panel ${multiSelect ? 'multi-select-mode' : ''}`}
+      style={{ '--track-header-width': `${headerWidth}px` } as React.CSSProperties}
+      tabIndex={0}
+      aria-label="편집 타임라인"
+      inert={blocked}
+      onPointerDownCapture={() => {
+        // Some touch drags produce no click. Never suppress the next gesture.
+        ignoreClick.current = false;
+      }}
+    >
+      {mobile ? (
+        <div className="mobile-timeline-bar" inert={toolsOpen}>
+          <span>{selected.length ? `${selected.length}개 선택` : '클립을 탭하세요'}</span>
+          <button aria-pressed={multiSelect} onClick={() => setMultiSelect(!multiSelect)}>
+            다중 선택
           </button>
-          <IconButton label="복사 (C / Ctrl/Cmd+C)" disabled={!selected.length} onClick={copy}>
-            <Copy size={15} />
-          </IconButton>
-          <IconButton label="붙여넣기 (Ctrl/Cmd+V)" disabled={!canPaste} onClick={() => paste()}>
-            <ClipboardPaste size={15} />
-          </IconButton>
-          <div className="track-menu-wrap" ref={pastePopup}>
-            <button
-              className="text-tool"
-              disabled={!canPaste}
-              aria-label="붙여넣기 방식"
-              aria-expanded={pasteMenu}
-              aria-controls="paste-menu"
-              onClick={() => setPasteMenu(!pasteMenu)}
-            >
-              ▾
-            </button>
-            {pasteMenu ? (
-              <div className="small-menu" id="paste-menu">
-                {(
-                  [
-                    ['insert', '삽입 (V)'],
-                    ['append', '끝에 추가 (A)'],
-                    ['overwrite', '덮어쓰기 (B)'],
-                    ['replace', '선택 교체 (R)'],
-                  ] as const
-                ).map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    title={
-                      mode === 'insert'
-                        ? '자막·텍스트는 별도 레이어에 추가하고, 영상·오디오는 전체 트랙에 시간을 삽입합니다.'
-                        : undefined
-                    }
-                    disabled={mode === 'replace' && !canEdit}
-                    onClick={() => {
-                      setPasteMenu(false);
-                      paste(mode);
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <IconButton label="복제 (Ctrl/Cmd+Shift+D)" disabled={!canEdit} onClick={duplicate}>
-            <Files size={15} />
-          </IconButton>
-          <IconButton
-            label="삭제 · 빈 공간 유지 (Z / Delete)"
-            disabled={!canEdit}
-            onClick={() => remove()}
-          >
-            <Trash2 size={15} />
-          </IconButton>
-          <button
-            className="text-tool ripple-tool"
-            title="리플 삭제 (X) · 전체 트랙의 시간 구간 제거"
-            disabled={!canEdit}
-            onClick={() => remove(true)}
-          >
-            리플 삭제
-          </button>
-          <span className="toolbar-divider" />
-          <IconButton label="스냅 (Ctrl/Cmd+P)" active={snap} onClick={() => setSnap(!snap)}>
-            <Magnet size={16} />
-          </IconButton>
-        </div>
-        <div className="timeline-right">
-          <div className="track-menu-wrap" ref={trackPopup}>
-            <button
-              className="text-tool"
-              aria-expanded={trackMenu}
-              aria-controls="track-menu"
-              onClick={() => setTrackMenu(!trackMenu)}
-            >
-              <Plus size={14} /> 트랙
-            </button>
-            {trackMenu ? (
-              <div className="small-menu" id="track-menu">
-                <button
-                  onClick={() => {
-                    addTrack('visual');
-                    setTrackMenu(false);
-                  }}
-                >
-                  <Layers size={14} /> 영상 · 이미지 · 텍스트
-                </button>
-                <button
-                  onClick={() => {
-                    addTrack('audio');
-                    setTrackMenu(false);
-                  }}
-                >
-                  <Music size={14} /> 오디오
-                </button>
-              </div>
-            ) : null}
-          </div>
-          <span className="toolbar-divider" />
           <IconButton label="타임라인 축소 (-)" onClick={() => setZoom(Math.max(8, zoom / 1.3))}>
-            <Minus size={15} />
+            <Minus size={18} />
           </IconButton>
-          <input
-            className="zoom-range"
-            aria-label="타임라인 확대"
-            type="range"
-            min={8}
-            max={200}
-            value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
-          />
           <IconButton label="타임라인 확대 (+)" onClick={() => setZoom(Math.min(200, zoom * 1.3))}>
-            <Plus size={15} />
-          </IconButton>
-          <IconButton
-            label="전체 타임라인 보기"
-            onClick={() =>
-              setZoom(Math.max(8, (viewport - 240) / Math.max(10, seconds(duration(p)) + 2)))
-            }
-          >
-            <ZoomIn size={15} />
+            <Plus size={18} />
           </IconButton>
         </div>
-      </div>
-      <PrecisionTools
-        p={p}
-        time={time}
-        selected={selected}
-        activeTrack={activeTrack}
-        commit={commit}
-        seek={seek}
-        notify={notify}
-      />
+      ) : null}
+      {mobile && selected.length ? (
+        <div className="mobile-clip-actions" inert={toolsOpen}>
+          <span>{p.clips.find((c) => selected.includes(c.id))?.name}</span>
+          <button disabled={!canSplit} onClick={splitAction}>
+            <Scissors size={17} />
+            분할
+          </button>
+          <button disabled={!canEdit} onClick={() => remove()}>
+            <Trash2 size={17} />
+            삭제
+          </button>
+        </div>
+      ) : null}
+      <EditorPanel
+        mobile={mobile}
+        open={toolsOpen}
+        title={editedTrack ? '트랙 설정' : '편집 도구'}
+        close={closeTools}
+      >
+        {mobile && editedTrack ? (
+          <TrackSettings
+            track={editedTrack}
+            index={p.tracks.indexOf(editedTrack)}
+            count={p.tracks.length}
+            patch={(v) => patchTrack(editedTrack.id, v)}
+            reorder={(d) => reorderTrack(p.tracks.indexOf(editedTrack), d)}
+            remove={() => {
+              removeTrack(editedTrack.id);
+              closeTools();
+            }}
+          />
+        ) : (
+          <div className="timeline-tools-content">
+            <div className="timeline-toolbar">
+              <div className="tool-group">
+                <IconButton
+                  label="선택 도구"
+                  active={tool === 'select'}
+                  onClick={() => setTool('select')}
+                >
+                  <MousePointer2 size={16} />
+                  <span className="mobile-only-label">선택</span>
+                </IconButton>
+                <IconButton
+                  label="분할 도구 · 클릭한 위치에서 분할"
+                  active={tool === 'split'}
+                  onClick={() => {
+                    setTool('split');
+                    setMultiSelect(false);
+                  }}
+                >
+                  <Scissors size={16} />
+                  <span className="mobile-only-label">분할 도구</span>
+                </IconButton>
+                <span className="toolbar-divider" />
+                <button
+                  className="text-tool"
+                  disabled={!canSplit}
+                  title={
+                    !canEdit
+                      ? '선택한 클립과 링크된 트랙의 잠금을 해제하세요.'
+                      : '클립 내부로 재생헤드를 이동해 분할'
+                  }
+                  onClick={splitAction}
+                >
+                  <Scissors size={14} /> 분할
+                </button>
+                <IconButton
+                  label="복사 (C / Ctrl/Cmd+C)"
+                  disabled={!selected.length}
+                  onClick={copy}
+                >
+                  <Copy size={15} />
+                  <span className="mobile-only-label">복사</span>
+                </IconButton>
+                <IconButton
+                  label="붙여넣기 (Ctrl/Cmd+V)"
+                  disabled={!canPaste}
+                  onClick={() => paste()}
+                >
+                  <ClipboardPaste size={15} />
+                  <span className="mobile-only-label">붙여넣기</span>
+                </IconButton>
+                <div className="track-menu-wrap" ref={pastePopup}>
+                  <button
+                    className="text-tool"
+                    disabled={!canPaste}
+                    aria-label="붙여넣기 방식"
+                    aria-expanded={pasteMenu}
+                    aria-controls="paste-menu"
+                    onClick={() => setPasteMenu(!pasteMenu)}
+                  >
+                    ▾<span className="mobile-only-label">배치 방식</span>
+                  </button>
+                  {pasteMenu ? (
+                    <div className="small-menu" id="paste-menu">
+                      {(
+                        [
+                          ['insert', '삽입 (V)'],
+                          ['append', '끝에 추가 (A)'],
+                          ['overwrite', '덮어쓰기 (B)'],
+                          ['replace', '선택 교체 (R)'],
+                        ] as const
+                      ).map(([mode, label]) => (
+                        <button
+                          key={mode}
+                          title={
+                            mode === 'insert'
+                              ? '자막·텍스트는 별도 레이어에 추가하고, 영상·오디오는 전체 트랙에 시간을 삽입합니다.'
+                              : undefined
+                          }
+                          disabled={mode === 'replace' && !canEdit}
+                          onClick={() => {
+                            setPasteMenu(false);
+                            paste(mode);
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <IconButton label="복제 (Ctrl/Cmd+Shift+D)" disabled={!canEdit} onClick={duplicate}>
+                  <Files size={15} />
+                  <span className="mobile-only-label">복제</span>
+                </IconButton>
+                <IconButton
+                  label="삭제 · 빈 공간 유지 (Z / Delete)"
+                  disabled={!canEdit}
+                  onClick={() => remove()}
+                >
+                  <Trash2 size={15} />
+                  <span className="mobile-only-label">삭제</span>
+                </IconButton>
+                <button
+                  className="text-tool ripple-tool"
+                  title="리플 삭제 (X) · 전체 트랙의 시간 구간 제거"
+                  disabled={!canEdit}
+                  onClick={() => remove(true)}
+                >
+                  리플 삭제
+                </button>
+                <span className="toolbar-divider" />
+                <IconButton label="스냅 (Ctrl/Cmd+P)" active={snap} onClick={() => setSnap(!snap)}>
+                  <Magnet size={16} />
+                  <span className="mobile-only-label">스냅</span>
+                </IconButton>
+              </div>
+              <div className="timeline-right">
+                <div className="track-menu-wrap" ref={trackPopup}>
+                  <button
+                    className="text-tool"
+                    aria-expanded={trackMenu}
+                    aria-controls="track-menu"
+                    onClick={() => setTrackMenu(!trackMenu)}
+                  >
+                    <Plus size={14} /> 트랙
+                  </button>
+                  {trackMenu ? (
+                    <div className="small-menu" id="track-menu">
+                      <button
+                        onClick={() => {
+                          addTrack('visual');
+                          setTrackMenu(false);
+                        }}
+                      >
+                        <Layers size={14} /> 영상 · 이미지 · 텍스트
+                      </button>
+                      <button
+                        onClick={() => {
+                          addTrack('audio');
+                          setTrackMenu(false);
+                        }}
+                      >
+                        <Music size={14} /> 오디오
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                <span className="toolbar-divider" />
+                <IconButton
+                  label="타임라인 축소 (-)"
+                  onClick={() => setZoom(Math.max(8, zoom / 1.3))}
+                >
+                  <Minus size={15} />
+                </IconButton>
+                <input
+                  className="zoom-range"
+                  aria-label="타임라인 확대"
+                  type="range"
+                  min={8}
+                  max={200}
+                  value={zoom}
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                />
+                <IconButton
+                  label="타임라인 확대 (+)"
+                  onClick={() => setZoom(Math.min(200, zoom * 1.3))}
+                >
+                  <Plus size={15} />
+                </IconButton>
+                <IconButton
+                  label="전체 타임라인 보기"
+                  onClick={() =>
+                    setZoom(
+                      Math.max(
+                        8,
+                        (viewport - headerWidth - 40) / Math.max(10, seconds(duration(p)) + 2),
+                      ),
+                    )
+                  }
+                >
+                  <ZoomIn size={15} />
+                </IconButton>
+              </div>
+            </div>
+            <PrecisionTools
+              p={p}
+              time={time}
+              selected={selected}
+              activeTrack={activeTrack}
+              commit={commit}
+              seek={seek}
+              notify={notify}
+            />
+          </div>
+        )}
+      </EditorPanel>
       <div
         className="timeline-scroll"
+        inert={mobile && toolsOpen}
         ref={scroll}
         onScroll={(e) => {
           setScrollLeft(e.currentTarget.scrollLeft);
@@ -650,7 +784,7 @@ export default memo(function Timeline({
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setGhost(null);
         }}
       >
-        <div className="timeline-content" style={{ width: width + 200 }}>
+        <div className="timeline-content" style={{ width: width + headerWidth }}>
           <div className="ruler-row">
             <div className="track-ruler-label">
               트랙 <span>위쪽 레이어 우선</span>
@@ -686,6 +820,28 @@ export default memo(function Timeline({
               data-track-id={track.id}
             >
               <div className="track-header" onClick={() => setActiveTrack(track.id)}>
+                {mobile ? (
+                  <button
+                    className="mobile-track-button"
+                    aria-label={`${track.name} 트랙 설정`}
+                    onClick={() => {
+                      setTrackEditor(track.id);
+                      openTools();
+                    }}
+                  >
+                    {track.kind === 'audio' ? <Music size={18} /> : <Layers size={18} />}
+                    <span>{track.name}</span>
+                    <small>
+                      {track.locked
+                        ? '잠김'
+                        : track.solo
+                          ? '단독'
+                          : track.hidden || track.muted
+                            ? '꺼짐'
+                            : `${index + 1}`}
+                    </small>
+                  </button>
+                ) : null}
                 <div className="track-title">
                   <span className={`track-symbol ${track.kind}`}>
                     {track.kind === 'audio' ? <Music size={13} /> : <Layers size={13} />}
@@ -799,6 +955,16 @@ export default memo(function Timeline({
                             return;
                           }
                           if (tool === 'split') splitAction();
+                          else if (mobile) {
+                            setActiveTrack(c.trackId);
+                            select(
+                              multiSelect
+                                ? selected.includes(c.id)
+                                  ? selected.filter((id) => id !== c.id)
+                                  : [...selected, c.id]
+                                : [c.id],
+                            );
+                          }
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
@@ -921,14 +1087,14 @@ export default memo(function Timeline({
           ))}
           <div
             className="playhead"
-            style={{ left: 200 + seconds(time) * zoom, height: '100%' }}
+            style={{ left: headerWidth + seconds(time) * zoom, height: '100%' }}
             onPointerDown={rulerDrag}
           >
             <span className="playhead-head" />
             <div className="playhead-line" />
           </div>
           {snapPoint !== null ? (
-            <div className="snap-guide" style={{ left: 200 + seconds(snapPoint) * zoom }} />
+            <div className="snap-guide" style={{ left: headerWidth + seconds(snapPoint) * zoom }} />
           ) : null}
           {box ? (
             <div

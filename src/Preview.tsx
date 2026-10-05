@@ -8,6 +8,8 @@ import { fitPreview } from './geometry';
 import TimeInput from './TimeInput';
 import { shortcutKey } from './shortcuts';
 type Props = {
+  mobile?: boolean;
+  blocked?: boolean;
   project: Project;
   time: number;
   playing: boolean;
@@ -26,6 +28,8 @@ type Props = {
   meter: React.ReactNode;
 };
 export default function Preview({
+  mobile = false,
+  blocked = false,
   project: p,
   time,
   playing,
@@ -51,8 +55,12 @@ export default function Preview({
     latest = useRef({ p, time, playing });
   latest.current = { p, time, playing };
   const [error, setError] = useState('');
+  const [frameReady, setFrameReady] = useState(false);
   const cancelGesture = useRef<(() => void) | undefined>(undefined);
   useEffect(() => () => cancelGesture.current?.(), [p.id]);
+  useEffect(() => {
+    cancelGesture.current?.();
+  }, [mobile, blocked]);
   const [bounds, setBounds] = useState({ width: 640, height: 360 });
   const [quality, setQuality] = useState(1),
     [cropMode, setCropMode] = useState(false),
@@ -62,6 +70,7 @@ export default function Preview({
   useEffect(() => {
     seq.current++;
     setError('');
+    setFrameReady(false);
     const c = canvas.current;
     c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
     let w: Worker;
@@ -82,6 +91,7 @@ export default function Preview({
           c.height = bitmap.height;
           c.getContext('2d')!.drawImage(bitmap, 0, 0);
           setError('');
+          setFrameReady(true);
         }
         bitmap.close();
       } else if (e.data.type === 'preview-error') setError(e.data.error);
@@ -139,6 +149,10 @@ export default function Preview({
   ) {
     event.stopPropagation();
     event.preventDefault();
+    if (mobile && (document.activeElement as HTMLElement)?.matches('input,textarea,select')) {
+      (document.activeElement as HTMLElement).blur();
+      return;
+    }
     if (!selectedText || !stage.current || locked || event.button !== 0) return;
     cancelGesture.current?.();
     const base = p,
@@ -236,61 +250,85 @@ export default function Preview({
       ? Math.max(fitted.width / sourceWidth, fitted.height / sourceHeight)
       : Math.min(fitted.width / sourceWidth, fitted.height / sourceHeight);
   return (
-    <section className="preview-panel" aria-label="미리보기">
+    <section className="preview-panel" aria-label="미리보기" inert={blocked}>
       <div className="panel-top">
         <span className="eyebrow">미리보기</span>
-        <div className="preview-meta">
-          <select
-            aria-label="미리보기 품질"
-            title="출력 해상도는 유지됩니다. 프록시 파일을 생성하지 않습니다."
-            value={quality}
-            onChange={(e) => setQuality(Number(e.target.value))}
-          >
-            <option value={1}>미리보기 100%</option>
-            <option value={0.5}>미리보기 50%</option>
-            <option value={0.25}>미리보기 25%</option>
-          </select>
-          <button
-            className="text-tool"
-            aria-pressed={p.safeArea ?? false}
-            onClick={() => update({ ...p, safeArea: !p.safeArea })}
-          >
-            안전 영역
-          </button>
-          {selectedText && selectedText.kind !== 'text' ? (
+        <details
+          className="preview-options"
+          open={!mobile}
+          onBlur={(e) => {
+            if (mobile && !e.currentTarget.contains(e.relatedTarget as Node))
+              e.currentTarget.open = false;
+          }}
+          onKeyDown={(e) => {
+            if (mobile && e.key === 'Escape' && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.currentTarget.open = false;
+              e.currentTarget.querySelector('summary')?.focus();
+            }
+          }}
+        >
+          <summary>
+            미리보기 설정{rate !== 1 ? ` · ${rate < 0 ? '역방향 탐색' : `${rate}×`}` : ''}
+          </summary>
+          <div className="preview-meta">
+            <select
+              aria-label="미리보기 품질"
+              title="출력 해상도는 유지됩니다. 프록시 파일을 생성하지 않습니다."
+              value={quality}
+              onChange={(e) => setQuality(Number(e.target.value))}
+            >
+              <option value={1}>미리보기 100%</option>
+              <option value={0.5}>미리보기 50%</option>
+              <option value={0.25}>미리보기 25%</option>
+            </select>
             <button
               className="text-tool"
-              disabled={!!locked || selectedText.rotation !== 0}
-              aria-pressed={cropMode}
-              onClick={() => setCropMode(!cropMode)}
+              aria-pressed={p.safeArea ?? false}
+              onClick={() => update({ ...p, safeArea: !p.safeArea })}
             >
-              크롭 핸들
+              안전 영역
             </button>
-          ) : null}
-          <button
-            className="text-tool"
-            disabled={!p.clips.length || !!processing}
-            onClick={capture}
-          >
-            정지 프레임
-          </button>
-          <span>
-            {p.width} × {p.height}
-          </span>
-          <span>{p.fps} FPS</span>
-          <span className="dot-separator" />
-          <span>로컬 처리</span>
-          <IconButton
-            label="미리보기 전체 화면"
-            onClick={() => {
-              void stage.current
-                ?.requestFullscreen()
-                .catch(() => notify('이 환경은 전체 화면을 지원하지 않습니다.'));
-            }}
-          >
-            <Maximize size={15} />
-          </IconButton>
-        </div>
+            {selectedText && selectedText.kind !== 'text' ? (
+              <button
+                className="text-tool"
+                disabled={!!locked || selectedText.rotation !== 0}
+                aria-pressed={cropMode}
+                onClick={() => setCropMode(!cropMode)}
+              >
+                크롭 핸들
+              </button>
+            ) : null}
+            <button
+              className="text-tool"
+              disabled={!p.clips.length || !!processing}
+              onClick={capture}
+            >
+              정지 프레임
+            </button>
+            <span>
+              {p.width} × {p.height}
+            </span>
+            <span>{p.fps} FPS</span>
+            <span className="dot-separator" />
+            <span>로컬 처리</span>
+            {mobile ? meter : null}
+            <IconButton
+              label="미리보기 전체 화면"
+              onClick={() => {
+                if (!stage.current?.requestFullscreen)
+                  notify('이 환경은 전체 화면을 지원하지 않습니다.');
+                else
+                  void stage.current
+                    .requestFullscreen()
+                    .catch(() => notify('이 환경은 전체 화면을 지원하지 않습니다.'));
+              }}
+            >
+              <Maximize size={15} />
+            </IconButton>
+          </div>
+        </details>
       </div>
       <div className="preview-area" ref={stage}>
         <div
@@ -383,6 +421,11 @@ export default function Preview({
               {error}
             </div>
           ) : null}
+          {mobile && p.clips.length > 0 && !frameReady && !error ? (
+            <div className="preview-loading" role="status">
+              미리보기 준비 중…
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="transport">
@@ -420,7 +463,7 @@ export default function Preview({
           </button>
         ) : null}
         <span className="playback-rate">{rate < 0 ? '역방향 프레임 탐색' : `${rate}×`}</span>
-        {meter}
+        {!mobile ? meter : null}
       </div>
     </section>
   );
