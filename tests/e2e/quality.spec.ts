@@ -25,13 +25,11 @@ test('quality: project switches terminate waveforms after file import completes'
       stop.call(this);
     };
   });
-  await page
-    .getByLabel('미디어 파일 선택')
-    .setInputFiles({
-      name: input.name,
-      mimeType: input.mimeType,
-      buffer: Buffer.from(input.bytes),
-    });
+  await page.getByLabel('미디어 파일 선택').setInputFiles({
+    name: input.name,
+    mimeType: input.mimeType,
+    buffer: Buffer.from(input.bytes),
+  });
   await expect(page.locator('.asset-card')).toHaveCount(1);
   await expect(page.locator('.import-progress')).toHaveCount(0);
   await expect
@@ -275,14 +273,14 @@ test('quality: gap impact, caption output targets and export-only settings are e
   await page.getByRole('button', { name: '내보내기', exact: true }).click();
   await page.getByRole('button', { name: '출력 설정 변경', exact: true }).click();
   await page.getByLabel('출력 화면 비율').selectOption('9:16');
-  await expect(page.locator('.export-summary')).toContainText('720 × 1280');
-  await expect(page.locator('.export-note').first()).toContainText('4분 22초');
+  await expect(page.locator('.export-summary')).toContainText('1080 × 1920');
+  await expect(page.locator('.export-note').first()).toContainText('17분 28초');
   await page.getByRole('radio', { name: '높음', exact: true }).check();
-  await expect(page.locator('.export-note').first()).toContainText('2분 12초');
+  await expect(page.locator('.export-note').first()).toContainText('8분 50초');
   await page.getByRole('button', { name: '돌아가기', exact: true }).click();
-  await expect(page.locator('.preview-meta')).toContainText('1280 × 720');
+  await expect(page.locator('.preview-meta')).toContainText('1920 × 1080');
   await page.reload();
-  await expect(page.locator('.preview-meta')).toContainText('1280 × 720');
+  await expect(page.locator('.preview-meta')).toContainText('1920 × 1080');
 });
 test('quality: portrait media preview survives mobile tabs and viewport resizing', async ({
   page,

@@ -123,6 +123,7 @@ test('real local editing, linked cuts, layers, Korean, audio, outputs and recove
   });
   await page.goto('/');
   await expect(page.getByRole('button', { name: '파일 선택', exact: true })).toBeVisible();
+  await page.getByRole('combobox', { name: '해상도', exact: true }).selectOption('720');
   const samples = await importSamples(page);
   await expect(page.getByLabel('프로젝트 합성 영상')).toBeVisible();
   await page.screenshot({ path: 'artifacts/imported.png' });

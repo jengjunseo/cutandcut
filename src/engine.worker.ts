@@ -14,7 +14,7 @@ import {
 import { probe, waveform, MediaPool, AudioMixer } from './media';
 import { Renderer } from './render';
 import { capabilities } from './codecs';
-import { exportBudget, EXPORT_MAX_BYTES } from './export-policy';
+import { exportBudget, EXPORT_MAX_BYTES, EXPORT_LIMIT_LABEL } from './export-policy';
 import {
   duration,
   seconds,
@@ -157,7 +157,7 @@ async function exportProject(
   const budget = exportBudget(format, length, p.fps, bitrate);
   if (!budget.allowed)
     throw new Error(
-      '현재 설정의 출력 길이·256MiB 제한을 초과합니다. 범위나 비트레이트를 줄이세요.',
+      `현재 설정의 출력 길이·${EXPORT_LIMIT_LABEL} 제한을 초과합니다. 범위나 비트레이트를 줄이세요.`,
     );
   const caps = await capabilities(p, bitrate, format);
   if (!caps[format])
@@ -186,17 +186,34 @@ async function exportProject(
               : new WavOutputFormat(),
     });
     let video: CanvasSource | undefined;
+    let encodedBytes = 0;
+    const countPacket = (packet: { byteLength: number }) => {
+      encodedBytes += packet.byteLength;
+    };
+    const checkSize = () => {
+      if (encodedBytes >= EXPORT_MAX_BYTES)
+        throw new Error('실제 출력이 1GiB를 초과했습니다. 범위나 비트레이트를 줄이세요.');
+    };
     if (format === 'mp4' || format === 'webm') {
       const codec: VideoCodec = format === 'mp4' ? 'avc' : caps.vp9 ? 'vp9' : 'vp8';
       const canvas = new OffscreenCanvas(p.width, p.height);
       visual = new Renderer(pool, canvas);
       await visual.render(p, from);
-      video = new CanvasSource(canvas, { codec, bitrate, keyFrameInterval: 2 });
+      video = new CanvasSource(canvas, {
+        codec,
+        bitrate,
+        keyFrameInterval: 2,
+        onEncodedPacket: countPacket,
+      });
       output.addVideoTrack(video, { frameRate: p.fps });
     }
     const audioCodec: AudioCodec =
       format === 'mp4' ? 'aac' : format === 'webm' ? 'opus' : format === 'mp3' ? 'mp3' : 'pcm-s16';
-    const audio = new AudioSampleSource({ codec: audioCodec, bitrate: 192000 });
+    const audio = new AudioSampleSource({
+      codec: audioCodec,
+      bitrate: 192000,
+      onEncodedPacket: countPacket,
+    });
     output.addAudioTrack(audio);
     mixer = new AudioMixer(p, pool);
     await output.start();
@@ -216,6 +233,7 @@ async function exportProject(
         });
         try {
           await audio.add(sample);
+          checkSize();
         } finally {
           sample.close();
         }
@@ -227,6 +245,7 @@ async function exportProject(
         const time = from + frameTick(frame, p.fps);
         await visual.render(p, time);
         await video.add(frame / p.fps, 1 / p.fps);
+        checkSize();
         const boundary = Math.min(sampleCount, Math.ceil(((frame + 1) / p.fps) * 48000));
         await encodeAudioUntil(boundary);
         if (frame % Math.max(1, Math.floor(p.fps / 4)) === 0)
@@ -255,7 +274,7 @@ async function exportProject(
     await output.finalize();
     const buffer = target.buffer!;
     if (buffer.byteLength >= EXPORT_MAX_BYTES)
-      throw new Error('실제 출력이 256MiB를 초과했습니다. 범위나 비트레이트를 줄이세요.');
+      throw new Error('실제 출력이 1GiB를 초과했습니다. 범위나 비트레이트를 줄이세요.');
     scope.postMessage(
       {
         type: 'complete',

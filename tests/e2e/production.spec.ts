@@ -28,6 +28,7 @@ test('production bundle: real files, Korean, native playback and all output engi
   await page.goto(process.env.PRODUCTION_URL!);
   if (fallback) await expect(page.locator('.output-support')).toContainText('로컬 AAC 대체 인코더');
   await expect(page.getByRole('button', { name: '파일 선택', exact: true })).toBeVisible();
+  await page.getByRole('combobox', { name: '해상도', exact: true }).selectOption('720');
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles(
     fixtures.map((f: { name: string; mimeType: string; bytes: number[] }) => ({

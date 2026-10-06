@@ -1,4 +1,5 @@
 import { validateProject, type Project } from './model';
+export const MEDIA_MAX_STORED_BYTES = 2 * 1024 * 1024 * 1024;
 let database: Promise<IDBDatabase> | undefined;
 function db() {
   return (database ??= new Promise<IDBDatabase>((resolve, reject) => {
@@ -84,6 +85,15 @@ export async function recentProjects(): Promise<SavedProject[]> {
   });
 }
 export const saveFile = (assetId: string, file: File) => write('files', assetId, file);
+/** Import and reconnection share the same quota/size policy and transaction completion. */
+export async function saveOriginal(assetId: string, file: File): Promise<boolean> {
+  if (file.size > MEDIA_MAX_STORED_BYTES) return false;
+  const estimate = await navigator.storage?.estimate();
+  if (estimate?.quota && estimate.quota - (estimate.usage ?? 0) < file.size * 1.2)
+    throw new Error('기기의 원본 저장 공간이 부족합니다.');
+  await saveFile(assetId, file);
+  return true;
+}
 export const loadFile = (assetId: string) => read<File>('files', assetId);
 export async function restoreProject() {
   const p = await read<Project>('project', 'recent');

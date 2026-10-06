@@ -13,7 +13,12 @@ import { checkCapabilities, createEngine, files, type Capabilities } from './eng
 import { download } from './storage';
 import { Field, IconButton, formatBytes, trapDialogFocus } from './ui';
 import { ratioOf, setRatio, ratios } from './geometry';
-import { exportBudget } from './export-policy';
+import {
+  exportBudget,
+  EXPORT_MAX_BYTES,
+  EXPORT_MAX_SECONDS,
+  EXPORT_LIMIT_LABEL,
+} from './export-policy';
 type Props = {
   project: Project;
   onClose: () => void;
@@ -290,7 +295,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                     }
                   >
                     <option value={720}>720p</option>
-                    <option value={1080}>1080p</option>
+                    <option value={1080}>1080p · 표준</option>
                   </select>
                 </Field>
                 <Field label="출력 FPS">
@@ -386,9 +391,9 @@ export default function ExportDialog({ project, onClose, range }: Props) {
             ) : null}
             <p className="export-note">
               예상 파일 크기 약 {formatBytes(estimate)}. 현재 설정 최대 길이{' '}
-              {Math.floor(budget.maxSeconds / 60)}분 {Math.floor(budget.maxSeconds % 60)}초
-              (5분·256MiB 중 먼저 도달하는 제한). 출력 설정은 이번 파일에만 적용됩니다. 프로젝트
-              타임라인은 60분까지입니다.
+              {Math.floor(budget.maxSeconds / 60)}분 {Math.floor(budget.maxSeconds % 60)}초 (
+              {EXPORT_LIMIT_LABEL} 중 먼저 도달하는 제한). 출력 설정은 이번 파일에만 적용됩니다.
+              프로젝트 타임라인은 60분까지입니다.
             </p>
             {caps?.aacFallback && format === 'mp4' ? (
               <p className="export-note">
@@ -403,9 +408,9 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                   있습니다.
                 </p>
               ))}
-            {estimate >= 256 * 1024 * 1024 ? (
+            {estimate >= EXPORT_MAX_BYTES ? (
               <p className="warning">
-                예상 파일이 256MB 제한을 초과합니다. 범위나 비트레이트를 줄이세요.
+                예상 파일이 1GiB 제한을 초과합니다. 범위나 비트레이트를 줄이세요.
               </p>
             ) : null}
             {!caps ? (
@@ -419,7 +424,9 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                 재연결하세요.
               </p>
             ) : null}
-            {length > 300 ? <p className="warning">현재 내보내기 길이는 5분까지입니다.</p> : null}
+            {length > EXPORT_MAX_SECONDS ? (
+              <p className="warning">현재 내보내기 길이는 {EXPORT_MAX_SECONDS / 60}분까지입니다.</p>
+            ) : null}
             <details className="export-preflight">
               <summary>
                 출력 사전 검사{' '}

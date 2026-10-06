@@ -11,6 +11,7 @@ test('crop handles, flip, quality, marquee, locking, solo, normalization and sto
   page,
 }) => {
   await page.goto('/');
+  await page.getByRole('combobox', { name: '해상도', exact: true }).selectOption('720');
   const fixtures = await page.evaluate(async () => {
     const url = '/tests/fixtures.browser.ts';
     return (await import(/* @vite-ignore */ url)).makeFixtures();

@@ -101,8 +101,8 @@ export function emptyProject(): Project {
     version: 1,
     id: id(),
     name: '이름 없는 프로젝트',
-    width: 1280,
-    height: 720,
+    width: 1920,
+    height: 1080,
     fps: 30,
     background: '#111820',
     assets: [],
@@ -238,9 +238,22 @@ export function split(p: Project, selected: string[], at: number): Project {
   }
   return normalize(next);
 }
-export function move(p: Project, selected: string[], delta: number, targetTrack?: string): Project {
+export function move(
+  p: Project,
+  selected: string[],
+  delta: number,
+  targetTrack?: string,
+  sourceTrack?: string,
+): Project {
   const targets = linked(p, selected);
   if (!editable(p, targets)) return p;
+  // Dragging one row relocates only that row; linked audio/group members keep
+  // their layer assignments while sharing the same time shift.
+  const relocated = new Set(
+    targets
+      .filter((c) => selected.includes(c.id) && (!sourceTrack || c.trackId === sourceTrack))
+      .map((c) => c.id),
+  );
   const shift = Math.max(-Math.min(...targets.map((c) => c.start)), Math.round(delta));
   const next = structuredClone(p);
   const destination = targetTrack && p.tracks.find((t) => t.id === targetTrack);
@@ -248,14 +261,14 @@ export function move(p: Project, selected: string[], delta: number, targetTrack?
     destination &&
     (destination.locked ||
       targets
-        .filter((c) => selected.includes(c.id))
+        .filter((c) => relocated.has(c.id))
         .some((c) => (c.kind === 'audio' ? 'audio' : 'visual') !== destination.kind))
   )
     return p;
   for (const c of next.clips)
     if (targets.some((t) => t.id === c.id)) {
       c.start += shift;
-      if (destination && selected.includes(c.id)) c.trackId = destination.id;
+      if (destination && relocated.has(c.id)) c.trackId = destination.id;
     }
   return normalize(next);
 }

@@ -41,6 +41,33 @@ const project = () => {
   return addAsset(p, asset, 0, p.tracks[1].id);
 };
 describe('integer time and linked edits', () => {
+  it('starts new projects at 1080p while preserving saved 720p projects', () => {
+    expect(emptyProject()).toMatchObject({ width: 1920, height: 1080 });
+    expect(validateProject({ ...emptyProject(), width: 1280, height: 720 })).toMatchObject({
+      width: 1280,
+      height: 720,
+    });
+  });
+  it('relocates the dragged video row without moving selected linked audio to a visual track', () => {
+    const p = project();
+    const video = p.clips.find((c) => c.kind === 'video')!;
+    const audio = p.clips.find((c) => c.kind === 'audio')!;
+    const next = move(p, [video.id, audio.id], tick(2), p.tracks[0].id, video.trackId);
+    expect(next.clips.find((c) => c.id === video.id)).toMatchObject({
+      trackId: p.tracks[0].id,
+      start: tick(2),
+    });
+    expect(next.clips.find((c) => c.id === audio.id)).toMatchObject({
+      trackId: audio.trackId,
+      start: tick(2),
+    });
+    expect(validateProject(next)).toEqual(next);
+    p.tracks[0].locked = true;
+    expect(move(p, [video.id, audio.id], tick(2), p.tracks[0].id, video.trackId)).toBe(p);
+    p.tracks[0].locked = false;
+    p.tracks[2].locked = true;
+    expect(move(p, [video.id, audio.id], tick(2), p.tracks[0].id, video.trackId)).toBe(p);
+  });
   it('uses rational frame timestamps without accumulating fractional error', () => {
     expect(frameTick(30 * 60 * 60, 30)).toBe(tick(3600));
     expect(frameTick(60 * 60 * 60, 60)).toBe(tick(3600));

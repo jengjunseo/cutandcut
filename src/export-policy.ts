@@ -1,6 +1,7 @@
 export type ExportFormat = 'mp4' | 'webm' | 'wav' | 'mp3';
-export const EXPORT_MAX_BYTES = 256 * 1024 * 1024;
-export const EXPORT_MAX_SECONDS = 300;
+export const EXPORT_MAX_BYTES = 1024 * 1024 * 1024;
+export const EXPORT_MAX_SECONDS = 30 * 60;
+export const EXPORT_LIMIT_LABEL = '30분·1GiB';
 /** Same frame rounding, audio bitrate and container reserve in UI and Worker. */
 export function exportBudget(format: ExportFormat, length: number, fps: number, bitrate: number) {
   const video = format === 'mp4' || format === 'webm';

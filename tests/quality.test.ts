@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   emptyProject,
   clipDefaults,
@@ -7,9 +7,25 @@ import {
   projectLimitError,
   validateProject,
 } from '../src/model';
-import { exportBudget, EXPORT_MAX_BYTES } from '../src/export-policy';
+import { exportBudget, EXPORT_MAX_BYTES, EXPORT_MAX_SECONDS } from '../src/export-policy';
+import { MEDIA_MAX_STORED_BYTES, saveOriginal } from '../src/storage';
 import { History } from '../src/history';
 describe('consistent editing, persistence and export limits', () => {
+  it('skips oversized original persistence before opening IndexedDB', async () => {
+    await expect(saveOriginal('large', { size: MEDIA_MAX_STORED_BYTES + 1 } as File)).resolves.toBe(
+      false,
+    );
+  });
+  it('rejects low quota before attempting the original transaction', async () => {
+    vi.stubGlobal('navigator', {
+      storage: { estimate: async () => ({ quota: 1000, usage: 950 }) },
+    });
+    try {
+      await expect(saveOriginal('small', { size: 100 } as File)).rejects.toThrow('저장 공간');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('accepts the same 60-minute boundary and explains overlong projects', () => {
     const p = emptyProject();
     p.clips = [
@@ -42,15 +58,17 @@ describe('consistent editing, persistence and export limits', () => {
   });
   it('uses video frame rounding, AAC bitrate and the same memory budget', () => {
     for (const bitrate of [3e6, 8e6, 16e6]) {
-      const b = exportBudget('mp4', 300, 30, bitrate);
+      const b = exportBudget('mp4', EXPORT_MAX_SECONDS, 30, bitrate);
       expect(exportBudget('mp4', b.maxSeconds, 30, bitrate).allowed).toBe(true);
       expect(exportBudget('mp4', b.maxSeconds + 1 / 30, 30, bitrate).allowed).toBe(false);
-      expect(b.estimate).toBeGreaterThan((300 * bitrate) / 8);
+      expect(b.estimate).toBeGreaterThan((EXPORT_MAX_SECONDS * bitrate) / 8);
     }
-    expect(exportBudget('mp4', 300, 30, 8e6).maxSeconds).toBeCloseTo(262, 0);
-    expect(exportBudget('wav', 300, 30, 30e6).allowed).toBe(true);
-    expect(exportBudget('wav', 301, 30, 1e6).allowed).toBe(false);
-    expect(exportBudget('mp4', 270, 30, 8e6).estimate).toBeGreaterThan(EXPORT_MAX_BYTES);
+    expect(exportBudget('mp4', 300, 30, 8e6).maxSeconds).toBeCloseTo(1048.53, 1);
+    expect(exportBudget('mp4', 300, 30, 16e6).allowed).toBe(true);
+    expect(exportBudget('wav', 1800, 30, 30e6).allowed).toBe(true);
+    expect(exportBudget('wav', 1801, 30, 1e6).allowed).toBe(false);
+    expect(exportBudget('mp4', 1100, 30, 8e6).estimate).toBeGreaterThan(EXPORT_MAX_BYTES);
+    expect(MEDIA_MAX_STORED_BYTES).toBe(2 * EXPORT_MAX_BYTES);
   });
   it('history keeps semantic no-ops and resets without crossing projects', () => {
     const h = new History(),

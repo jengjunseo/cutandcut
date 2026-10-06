@@ -107,6 +107,7 @@ test('mobile real files: cuts, layers, transition, music, caption paste, recover
   await page.getByRole('button', { name: '다시 실행 (Ctrl/Cmd+Shift+Z)', exact: true }).tap();
   await expect(page.locator('.timeline-clip.text')).toHaveCount(2);
   await page.locator('.mobile-dock').getByRole('button', { name: '화면', exact: true }).tap();
+  await page.getByRole('combobox', { name: '해상도', exact: true }).selectOption('720');
   await page.getByRole('button', { name: '9:16', exact: true }).tap();
   await closePanel(page);
   project = await projectFile(page);
@@ -147,19 +148,17 @@ test('mobile real files: cuts, layers, transition, music, caption paste, recover
   const bytes = Array.from(await fs.readFile((await (await download).path())!));
   const analysis = await analyzer.evaluate(
     async ({ bytes, project, samples }) => {
-      const engineUrl = '/src/engine.ts',
-        parityUrl = '/tests/e2e/parity.browser.ts';
-      const { files } = await import(/* @vite-ignore */ engineUrl);
-      for (const asset of project.assets) {
+      const parityUrl = '/tests/e2e/parity.browser.ts';
+      const sources = project.assets.map((asset) => {
         const sample = samples.find((s: { name: string }) => s.name === asset.name)!;
-        files.set(
-          asset.id,
-          new File([new Uint8Array(sample.bytes)], sample.name, { type: sample.mimeType }),
-        );
-      }
+        return {
+          id: asset.id,
+          file: new File([new Uint8Array(sample.bytes)], sample.name, { type: sample.mimeType }),
+        };
+      });
       const { compareOutput, audioCuts } = await import(/* @vite-ignore */ parityUrl);
       return {
-        frames: await compareOutput(project, bytes),
+        frames: await compareOutput(project, bytes, sources),
         audio: await audioCuts(bytes),
         userAgent: navigator.userAgent,
       };

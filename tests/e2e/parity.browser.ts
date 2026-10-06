@@ -48,9 +48,16 @@ export async function audioCuts(bytes: number[]) {
   }
 }
 /** Compare actual decoded export pixels to the common compositor; additionally inspect clip-boundary colors. */
-export async function compareOutput(project: Project, bytes: number[]) {
+export async function compareOutput(
+  project: Project,
+  bytes: number[],
+  sources?: { id: string; file: File }[],
+) {
   const pool = new MediaPool();
-  for (const [key, file] of files) pool.register(key, file);
+  // A separate analyzer page should receive its own originals rather than
+  // mutating the live editor's file map during asynchronous restoration/HMR.
+  if (sources) for (const { id, file } of sources) pool.register(id, file);
+  else for (const [key, file] of files) pool.register(key, file);
   const input = new Input({
     source: new BlobSource(new Blob([new Uint8Array(bytes)])),
     formats: ALL_FORMATS,

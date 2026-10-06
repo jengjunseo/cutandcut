@@ -346,13 +346,21 @@ export default memo(function Timeline({
     target.setPointerCapture(e.pointerId);
     const base = p,
       startX = e.clientX,
+      startY = e.clientY,
       startScroll = scroll.current!.scrollLeft;
     let next = p,
       moved = false,
       clientX = e.clientX,
       clientY = e.clientY,
       altDown = e.altKey,
+      dirty = false,
+      verticalDirection = 0,
+      destination: string | undefined,
+      dropError: string | undefined,
       animation = 0;
+    const chosen = base.clips.filter((c) => ids.includes(c.id));
+    const sameKind = chosen.filter((item) => (item.kind === 'audio') === (c.kind === 'audio'));
+    const canReassign = sameKind.every((item) => item.trackId === c.trackId);
     const update = () => {
       const total = clientX - startX + scroll.current!.scrollLeft - startScroll;
       let delta = tick(total / zoom);
@@ -374,34 +382,60 @@ export default memo(function Timeline({
           delta = snapped - origin;
           setSnapPoint(snapped);
         } else setSnapPoint(null);
-      }
+      } else setSnapPoint(null);
       const row = document
         .elementFromPoint(Math.min(window.innerWidth - 2, Math.max(1, clientX)), clientY)
         ?.closest<HTMLElement>('[data-track-id]');
-      const dest = row?.dataset.trackId;
-      const chosen = base.clips.filter((c) => ids.includes(c.id));
-      const canReassign =
-        chosen.every((c) => c.trackId === chosen[0].trackId) && dest !== chosen[0].trackId;
-      next = edge
-        ? trim(base, ids, edge, delta)
-        : move(base, ids, delta, canReassign ? dest : undefined);
+      const dest = base.tracks.find((t) => t.id === row?.dataset.trackId);
+      destination = !edge && dest && dest.id !== c.trackId ? dest.id : undefined;
+      dropError =
+        !edge && !dest
+          ? '타임라인 안의 트랙에 놓으세요.'
+          : !destination
+            ? undefined
+            : dest!.locked
+              ? '대상 트랙이 잠겨 있습니다. 잠금을 해제한 뒤 이동하세요.'
+              : dest!.kind !== (c.kind === 'audio' ? 'audio' : 'visual')
+                ? '영상은 시각 트랙, 오디오는 오디오 트랙으로 이동하세요.'
+                : !canReassign
+                  ? '여러 레이어의 선택은 한 트랙에 합치지 않습니다. 이동할 트랙의 클립을 선택하세요.'
+                  : undefined;
+      next = edge ? trim(base, ids, edge, delta) : move(base, ids, delta);
+      // Keep the captured clip mounted until pointerup. A draft layer change
+      // would unmount it, lose pointer capture, and roll the gesture back.
       draft(next);
+      const proposed = next.clips.find((item) => item.id === c.id)!;
+      setGhost(
+        destination && !dropError
+          ? { track: destination, start: proposed.start, duration: proposed.duration, name: c.name }
+          : null,
+      );
+      dirty = false;
     };
     const loop = () => {
       const s = scroll.current!;
       const rect = s.getBoundingClientRect();
-      if (clientX > rect.right - 45) s.scrollLeft += Math.min(22, (clientX - rect.right + 45) / 2);
-      else if (clientX < rect.left + headerWidth + 10)
-        s.scrollLeft -= Math.min(22, (rect.left + headerWidth + 10 - clientX) / 2);
-      if (moved) update();
+      const beforeScroll = s.scrollLeft;
+      const beforeTop = s.scrollTop;
+      if (moved) {
+        if (clientX > rect.right - 45)
+          s.scrollLeft += Math.min(22, (clientX - rect.right + 45) / 2);
+        else if (clientX < rect.left + headerWidth + 10)
+          s.scrollLeft -= Math.min(22, (rect.left + headerWidth + 10 - clientX) / 2);
+        if (!edge && verticalDirection > 0 && clientY > rect.bottom - 24) s.scrollTop += 10;
+        else if (!edge && verticalDirection < 0 && clientY < rect.top + 24) s.scrollTop -= 10;
+      }
+      if (moved && (dirty || beforeScroll !== s.scrollLeft || beforeTop !== s.scrollTop)) update();
       animation = requestAnimationFrame(loop);
     };
     animation = requestAnimationFrame(loop);
     const onMove = (event: PointerEvent) => {
+      if (event.clientY !== clientY) verticalDirection = Math.sign(event.clientY - clientY);
       clientX = event.clientX;
       clientY = event.clientY;
       altDown = event.altKey;
-      if (Math.abs(clientX - startX) > 3) moved = true;
+      dirty = true;
+      if (Math.hypot(clientX - startX, clientY - startY) > 3) moved = true;
     };
     const cleanup = () => {
       cancelAnimationFrame(animation);
@@ -416,15 +450,18 @@ export default memo(function Timeline({
       if (target.hasPointerCapture(e.pointerId)) target.releasePointerCapture(e.pointerId);
       draft(undefined);
       setSnapPoint(null);
+      setGhost(null);
     };
     const onEnd = (event: PointerEvent) => {
       clientX = event.clientX;
       clientY = event.clientY;
+      if (Math.hypot(clientX - startX, clientY - startY) > 3) moved = true;
       if (moved) update();
       cleanup();
       if (moved) {
         ignoreClick.current = true;
-        commit(next);
+        if (dropError) notify(dropError);
+        else commit(destination ? move(next, ids, 0, destination, c.trackId) : next);
       }
     };
     const onCancel = () => cleanup();
@@ -432,6 +469,7 @@ export default memo(function Timeline({
       if (event.key === 'Alt') {
         event.preventDefault();
         altDown = true;
+        dirty = true;
       } else if (event.key === 'Escape') {
         event.preventDefault();
         cleanup();
@@ -446,6 +484,7 @@ export default memo(function Timeline({
     };
     const modifiers = (event: KeyboardEvent) => {
       altDown = event.altKey;
+      dirty = true;
     };
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onEnd, { once: true });
@@ -1074,7 +1113,7 @@ export default memo(function Timeline({
                       width: seconds(ghost.duration) * zoom,
                     }}
                   >
-                    {ghost.name} · 드롭 후 원본 길이 적용
+                    {ghost.name} · 놓으면 이 위치로 배치
                   </div>
                 ) : null}
                 {!p.clips.length && index === 1 ? (

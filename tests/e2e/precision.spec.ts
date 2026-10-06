@@ -17,7 +17,7 @@ test('speed, pitch preservation, mix normalization, freeze and absolute-time ran
   expect(speed.cancelled).toBe('AbortError');
   expect(speed.analysis.clippedSamples).toBeGreaterThan(0);
   expect(speed.normalized.peak).toBeCloseTo(0.95, 2);
-  expect(speed.image.width).toBe(1280);
+  expect(speed.image.width).toBe(1920);
   expect(speed.image.color[0] - speed.image.color[2]).toBeGreaterThan(100);
   const range = await page.evaluate(async () => {
     const url = '/tests/audit.browser.ts';
