@@ -13,6 +13,16 @@ Windows / Chrome 154에서 단위 **62개**, 전체 브라우저 **55개**가 �
 
 초기 전체 실행에서는 별도 모바일 분석의 원본 참조 누락, 검증 도구 수정 중 HMR 탐색 취소, 겹친 클립의 앞쪽 영상 색을 잘못 기대한 검사 실패를 발견했다. 원본 전달과 의도한 클립/디코딩 프레임 검사를 보완하고 소스 변경 없이 최종 전체 실행을 통과했다. 최대 부하·실제 휴대폰/태블릿 하드웨어·다른 브라우저는 이번 검증 범위 밖이다.
 
+### 트랙·용량 수정 운영 배포
+
+코드 커밋 `dc97164bd7e6386bb49d04c657ac531ea6f42443`의 GitHub main 연동 배포는 Vercel production/Ready다. 배포 ID는 `dpl_DDjnQARTrXnZHKcT72jmqjAvifP2`, 고정 주소는 [cutandcut-el61sw5xf](https://cutandcut-el61sw5xf-wondaes-projects-fe5c826b.vercel.app), 운영은 [cutandcut.vercel.app](https://cutandcut.vercel.app)다. 공개 도메인의 HTTP 200과 로컬 최종 빌드와 같은 `index-ebXGTvi8.js`를 확인했다.
+
+Windows / Chrome 154의 새 컨텍스트에서 운영 도메인 **13개 시나리오 모두 통과**했다(5.2분). 수직 이동·링크 쌍 선택 이동·잠금/비호환 드롭·네이티브 터치 위 트랙 이동·한 undo, 드래그 정지 중 추가 미리보기 요청 0회, 원본 재연결 quota 실패 후 정상 저장/재열기, 자막 붙여넣기 미디어 보존, 캡처 해제/속성 blur 뒤 트랙 삭제를 재검사했다.
+
+실제 겹친 영상의 **1920×1080 및 1080×1920 AVC/AAC MP4**(2.048초)를 다운로드·재생·프레임 탐색하고 위 레이어의 색과 혼합 오디오를 별도 디코딩했다. [운영 1080p 분석](results/track-overlay-production.json). 기존 720p 가로/세로 MP4, VP9/Opus WebM, PCM WAV, MP3도 실제 출력·오디오 분석을 통과했다. [형식별 결과](results/track-output-production.json). 6분 무음 PCM WAV는 48kHz·스테레오·69,120,044바이트다. [확대된 길이 검사](results/track-capacity-production.json).
+
+모바일 전체 편집·한글·디졸브·음악·자막 붙여넣기·저장/재열기 후 세로 MP4도 통과했다. 기존 프로젝트의 **720×1280·6.016초·328,421바이트**가 유지되며 여섯 시각의 평균 RGB 오차는 약 0.30–0.33/255, 혼합 오디오 에너지 있음·페이지 예외 0개다. [운영 모바일 분석](results/track-mobile-production.json). 이번 운영 검사는 네이티브 코덱 경로다. 실제 모바일 하드웨어·다른 브라우저·최대 1GiB 출력/2GiB 원본 보관/30분 영상 부하는 검증 범위 밖이다.
+
 ## 선택형 모바일·태블릿 UI · 2026-10-05
 
 프로젝트 메뉴의 앱 설정에서 모바일 모드를 선택한다. 기존 기본 UI, 편집 모델·프로젝트 JSON·시간 규칙·합성·출력 엔진은 유지한다. 하단 5개 도구, 터치 선택/탐색/이동/트림·다중 선택, 전화 하단/넓은 태블릿 측면/가로 화면 배치와 가시 뷰포트 입력 대응을 구현했다. 기능 도달성·위험 판단·실기기 제한은 [MOBILE_UI.md](MOBILE_UI.md)에 있다.
