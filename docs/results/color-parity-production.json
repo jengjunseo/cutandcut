@@ -1,0 +1,77 @@
+{
+  "url": "https://cutandcut.vercel.app",
+  "blue": {
+    "width": 1080,
+    "height": 1920,
+    "duration": 1.0026666666666666,
+    "colorSpace": {
+      "primaries": "bt709",
+      "transfer": "iec61966-2-1",
+      "matrix": "bt709",
+      "fullRange": false
+    },
+    "patches": [
+      [18, 24, 32, 255],
+      [18, 24, 32, 255],
+      [18, 24, 32, 255],
+      [18, 24, 32, 255],
+      [18, 24, 32, 255],
+      [18, 24, 32, 255]
+    ],
+    "frameHashes": [
+      "6bdff6f9aba87705ad62308808c93b9066a649b3e2655ccf6c267a5353397b86",
+      "971ec692a1450f75f62f228b2d90c4cac388f5a923a9227df004ac7d90d2646f",
+      "5794ecd34fc1f8ab5ef4dba1b6655c3681395389f068b1c7fb94a44f660b474d"
+    ]
+  },
+  "standard": {
+    "width": 1080,
+    "height": 1920,
+    "duration": 1.0026666666666666,
+    "colorSpace": {
+      "primaries": "bt709",
+      "transfer": "iec61966-2-1",
+      "matrix": "bt709",
+      "fullRange": false
+    },
+    "patches": [
+      [0, 0, 0, 255],
+      [0, 0, 0, 255],
+      [0, 0, 0, 255],
+      [0, 0, 0, 255],
+      [0, 0, 0, 255],
+      [0, 0, 0, 255]
+    ],
+    "frameHashes": [
+      "14d668a62fab8754a70eb95c5965f9af4762d30b7e911177eb81c995dbc42116",
+      "dcbbb1fdc39add9fae5c52d5b0e1f5109fd328d1c2ff31b513b842cd2ca8f335",
+      "f8ddbc1cfba6c1bfebd3bd371b65e833e267a0dc1f190474234caed0c31c523f"
+    ]
+  },
+  "mobile": {
+    "width": 1080,
+    "height": 1920,
+    "duration": 1.0026666666666666,
+    "colorSpace": {
+      "primaries": "bt709",
+      "transfer": "iec61966-2-1",
+      "matrix": "bt709",
+      "fullRange": false
+    },
+    "patches": [
+      [0, 0, 0, 255],
+      [0, 0, 0, 255],
+      [0, 0, 0, 255],
+      [0, 0, 0, 255],
+      [0, 0, 0, 255],
+      [0, 0, 0, 255]
+    ],
+    "frameHashes": [
+      "14d668a62fab8754a70eb95c5965f9af4762d30b7e911177eb81c995dbc42116",
+      "dcbbb1fdc39add9fae5c52d5b0e1f5109fd328d1c2ff31b513b842cd2ca8f335",
+      "f8ddbc1cfba6c1bfebd3bd371b65e833e267a0dc1f190474234caed0c31c523f"
+    ]
+  },
+  "errors": [],
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+}
