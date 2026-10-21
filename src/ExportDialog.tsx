@@ -13,6 +13,7 @@ import { checkCapabilities, createEngine, files, type Capabilities } from './eng
 import { download } from './storage';
 import { Field, IconButton, formatBytes, trapDialogFocus } from './ui';
 import { ratioOf, setRatio, ratios } from './geometry';
+import { sourceColorWarning } from './color';
 import {
   exportBudget,
   EXPORT_MAX_BYTES,
@@ -51,6 +52,9 @@ export default function ExportDialog({ project, onClose, range }: Props) {
   );
   const needed = requiredAssets(snapshot, from, to, format === 'mp4' || format === 'webm');
   const missing = snapshot.assets.filter((a) => needed.has(a.id) && !files.has(a.id));
+  const colorWarnings = snapshot.assets.filter(
+    (a) => needed.has(a.id) && sourceColorWarning(a.colorSpace),
+  );
   const visualIntervals = visible
     .filter((c) => c.kind !== 'audio')
     .map((c) => [Math.max(from, c.start), Math.min(to, c.start + c.duration)])
@@ -427,12 +431,18 @@ export default function ExportDialog({ project, onClose, range }: Props) {
             {length > EXPORT_MAX_SECONDS ? (
               <p className="warning">현재 내보내기 길이는 {EXPORT_MAX_SECONDS / 60}분까지입니다.</p>
             ) : null}
+            {colorWarnings.map((asset) => (
+              <p className="asset-color-note" key={asset.id}>
+                {asset.name}: {sourceColorWarning(asset.colorSpace)}
+              </p>
+            ))}
             <details className="export-preflight">
               <summary>
                 출력 사전 검사{' '}
                 {missing.length +
                 Number(gaps > 0) +
                 Number(riskyText.length > 0) +
+                Number(colorWarnings.length > 0) +
                 Number(overlaps.length > 0)
                   ? '· 확인할 항목 있음'
                   : '· 확인 완료'}
@@ -454,6 +464,10 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                   미리보기에서 위치·줄바꿈을 확인하세요 (대략적인 검사).
                 </p>
               ) : null}
+              <p>
+                영상은 SDR(sRGB)로 합성합니다. 원본의 색 정보는 유지하며 기기별 화면 설정과
+                디코더·인코더에 따른 차이가 남을 수 있습니다.
+              </p>
               <p>
                 폰트는 출력 전에 실제 로딩을 기다립니다. 영상·오디오 길이는 출력 FPS에 맞춰 마지막
                 프레임까지 확장될 수 있습니다.

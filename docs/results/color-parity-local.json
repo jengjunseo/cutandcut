@@ -1,0 +1,80 @@
+{
+  "standardPreview": {
+    "width": 740,
+    "height": 416,
+    "patches": [
+      [31, 31, 31, 255],
+      [128, 128, 128, 255],
+      [223, 223, 223, 255],
+      [182, 73, 50, 255],
+      [56, 128, 88, 255],
+      [66, 107, 182, 255]
+    ],
+    "colorSpace": "srgb",
+    "alpha": false
+  },
+  "phonePreview": {
+    "width": 366,
+    "height": 206,
+    "patches": [
+      [31, 31, 31, 255],
+      [128, 128, 128, 255],
+      [223, 223, 223, 255],
+      [182, 73, 50, 255],
+      [56, 128, 88, 255],
+      [66, 107, 182, 255]
+    ],
+    "colorSpace": "srgb",
+    "alpha": false
+  },
+  "standardOutput": {
+    "width": 1920,
+    "height": 1080,
+    "duration": 1.0026666666666666,
+    "colorSpace": {
+      "primaries": "bt709",
+      "transfer": "iec61966-2-1",
+      "matrix": "bt709",
+      "fullRange": false
+    },
+    "patches": [
+      [31, 31, 31, 255],
+      [128, 128, 128, 255],
+      [223, 223, 223, 255],
+      [182, 73, 50, 255],
+      [56, 128, 88, 255],
+      [66, 107, 182, 255]
+    ],
+    "frameHashes": [
+      "b8220e989f4bfeb80becc9467294697bd9ec84c03eb455ae0c4ad30ba5ecf91e",
+      "e1e676aca9346bb165373a4aa5fb67c6d00b2e6f607175942cd1a088569c5c4c",
+      "1887b712d1eac34eafbc2926972ac28792acc401d0719ede31865009d7f62d1a"
+    ]
+  },
+  "phoneOutput": {
+    "width": 1920,
+    "height": 1080,
+    "duration": 1.0026666666666666,
+    "colorSpace": {
+      "primaries": "bt709",
+      "transfer": "iec61966-2-1",
+      "matrix": "bt709",
+      "fullRange": false
+    },
+    "patches": [
+      [31, 31, 31, 255],
+      [128, 128, 128, 255],
+      [223, 223, 223, 255],
+      [182, 73, 50, 255],
+      [56, 128, 88, 255],
+      [66, 107, 182, 255]
+    ],
+    "frameHashes": [
+      "b8220e989f4bfeb80becc9467294697bd9ec84c03eb455ae0c4ad30ba5ecf91e",
+      "e1e676aca9346bb165373a4aa5fb67c6d00b2e6f607175942cd1a088569c5c4c",
+      "1887b712d1eac34eafbc2926972ac28792acc401d0719ede31865009d7f62d1a"
+    ]
+  },
+  "errors": [],
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+}

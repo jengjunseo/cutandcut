@@ -591,8 +591,16 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                     onChange={(e) => commit({ ...p, background: e.target.value })}
                   />
                   <span>{p.background.toUpperCase()}</span>
+                  <button
+                    className="text-tool"
+                    disabled={p.background.toLowerCase() === '#000000'}
+                    onClick={() => commit({ ...p, background: '#000000' })}
+                  >
+                    검정으로
+                  </button>
                 </div>
               </Field>
+              <p className="small-note">영상 바깥의 여백에도 적용되며 결과 파일에 포함됩니다.</p>
             </div>
             <div className="info-box">
               <Link2 size={16} />

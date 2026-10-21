@@ -1,3 +1,5 @@
+import { validSourceColorSpace, type SourceColorSpace } from './color';
+
 export const SECOND = 1_000_000;
 export const PROJECT_MAX_TIME = 3600 * SECOND;
 export const PROJECT_MAX_DIMENSION = 1920;
@@ -24,6 +26,7 @@ export type Asset = {
   height: number;
   container: string;
   videoCodec?: string;
+  colorSpace?: SourceColorSpace;
   audioCodec?: string;
   videoStart: number;
   audioStart: number;
@@ -104,7 +107,7 @@ export function emptyProject(): Project {
     width: 1920,
     height: 1080,
     fps: 30,
-    background: '#111820',
+    background: '#000000',
     assets: [],
     tracks: [
       {
@@ -668,6 +671,7 @@ export function validateProject(value: unknown): Project {
       !Number.isFinite(a.audioStart) ||
       (a.origin !== undefined && !Number.isFinite(a.origin)) ||
       typeof a.container !== 'string' ||
+      (a.colorSpace !== undefined && !validSourceColorSpace(a.colorSpace)) ||
       typeof a.hasAudio !== 'boolean' ||
       typeof a.stored !== 'boolean'
     )

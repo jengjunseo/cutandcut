@@ -476,10 +476,13 @@ a {
   overflow: hidden;
 }
 .canvas-wrap {
+  /* Native touch highlights must never tint the image being judged. */
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
   position: relative;
   width: 100%;
   max-height: 100%;
-  background: #111820;
+  background: #000000;
   box-shadow: 0 3px 16px #172c3d12;
   display: flex;
   align-items: center;
@@ -745,10 +748,15 @@ a {
 }
 .color-field {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   font-family: ui-monospace, monospace;
   color: var(--muted);
+}
+.color-field .text-tool {
+  min-height: 32px;
+  white-space: nowrap;
 }
 .color-field input {
   width: 34px;
@@ -1326,6 +1334,16 @@ a {
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
+}
+.asset-color-note {
+  margin: 8px 0;
+  padding: 8px;
+  border-left: 3px solid #9b691d;
+  background: #fff7e9;
+  color: #604315;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 .asset-storage {
   font-size: 8px;

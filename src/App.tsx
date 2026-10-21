@@ -74,6 +74,7 @@ import {
   MEDIA_MAX_STORED_BYTES,
 } from './storage';
 import { EXPORT_MAX_SECONDS } from './export-policy';
+import { sourceColorWarning } from './color';
 import { AudioPreview } from './audio-preview';
 import Preview from './Preview';
 import Timeline from './Timeline';
@@ -116,6 +117,7 @@ export default function App() {
     [saveStatus, setSaveStatus] = useState('불러오는 중'),
     [ready, setReady] = useState(false),
     [importing, setImporting] = useState(''),
+    [mediaRevision, setMediaRevision] = useState(0),
     [importErrors, setImportErrors] = useState<{ file: File; message: string }[]>([]),
     [persistMedia, setPersistMedia] = useState(true),
     [autoInsert, setAutoInsert] = useState(false),
@@ -736,9 +738,18 @@ export default function App() {
             commit({
               ...current,
               assets: current.assets.map((a) =>
-                a.id === asset.id ? { ...a, stored: asset.stored, thumbnail: asset.thumbnail } : a,
+                a.id === asset.id
+                  ? {
+                      ...a,
+                      stored: asset.stored,
+                      thumbnail: asset.thumbnail,
+                      colorSpace: asset.colorSpace ?? a.colorSpace,
+                    }
+                  : a,
               ),
             });
+            // File availability changes even when all serialized metadata is identical.
+            setMediaRevision((value) => value + 1);
             notify(
               `${file.name} 원본을 재연결했습니다.${asset.stored ? '' : ' 이번 탭에서 편집할 수 있으며, 다시 열 때 원본 재연결이 필요합니다.'}`,
             );
@@ -1536,6 +1547,9 @@ export default function App() {
                             </button>
                           </div>
                           <strong title={a.name}>{a.name}</strong>
+                          {sourceColorWarning(a.colorSpace) ? (
+                            <p className="asset-color-note">{sourceColorWarning(a.colorSpace)}</p>
+                          ) : null}
                           <span
                             className="asset-details"
                             title={`${a.container} · ${a.videoCodec || a.audioCodec} · ${formatBytes(a.size)}`}
@@ -1701,6 +1715,7 @@ export default function App() {
           onPointerDown={(e) => resize(e, 'left')}
         />
         <Preview
+          mediaRevision={mediaRevision}
           mobile={mobile}
           blocked={panelBlocking}
           mediaActionLabel={selectedMedia.length ? '선택한 미디어 추가' : '보관함에서 배치하기'}

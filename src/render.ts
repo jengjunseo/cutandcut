@@ -1,6 +1,7 @@
 import { layers, type Project, type Clip } from './model';
 import { MediaPool, VideoCursor } from './media';
 import { ensureFonts } from './fonts';
+import { VIDEO_CONTEXT } from './color';
 export class Renderer {
   cursors = new Map<string, VideoCursor>();
   fontText = '';
@@ -14,7 +15,8 @@ export class Renderer {
       await ensureFonts(texts);
       this.fontText = texts;
     }
-    const ctx = this.canvas.getContext('2d')!;
+    const ctx = this.canvas.getContext('2d', VIDEO_CONTEXT);
+    if (!ctx) throw new Error('SDR 영상 합성 캔버스를 시작할 수 없습니다.');
     const w = this.canvas.width,
       h = this.canvas.height;
     ctx.resetTransform();

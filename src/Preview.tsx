@@ -7,7 +7,9 @@ import { IconButton } from './ui';
 import { fitPreview } from './geometry';
 import TimeInput from './TimeInput';
 import { shortcutKey } from './shortcuts';
+import { VIDEO_CONTEXT } from './color';
 type Props = {
+  mediaRevision: number;
   mobile?: boolean;
   blocked?: boolean;
   project: Project;
@@ -28,6 +30,7 @@ type Props = {
   meter: React.ReactNode;
 };
 export default function Preview({
+  mediaRevision,
   mobile = false,
   blocked = false,
   project: p,
@@ -72,7 +75,7 @@ export default function Preview({
     setError('');
     setFrameReady(false);
     const c = canvas.current;
-    c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
+    c?.getContext('2d', VIDEO_CONTEXT)?.clearRect(0, 0, c.width, c.height);
     let w: Worker;
     try {
       w = createEngine();
@@ -89,7 +92,7 @@ export default function Preview({
           const c = canvas.current;
           c.width = bitmap.width;
           c.height = bitmap.height;
-          c.getContext('2d')!.drawImage(bitmap, 0, 0);
+          c.getContext('2d', VIDEO_CONTEXT)!.drawImage(bitmap, 0, 0);
           setError('');
           setFrameReady(true);
         }
@@ -139,7 +142,7 @@ export default function Preview({
     } catch (e) {
       setError(e instanceof Error ? e.message : '미리보기 원본을 전달할 수 없습니다.');
     }
-  }, [p, time, width, quality]);
+  }, [p, time, width, quality, mediaRevision]);
   const selectedText = p.clips.find((c) => selected.includes(c.id) && c.kind !== 'audio');
   const locked = selectedText && !editable(p, linked(p, [selectedText.id]));
   useEffect(() => setCropMode(false), [selectedText?.id, selectedText?.rotation]);
@@ -333,6 +336,7 @@ export default function Preview({
       <div className="preview-area" ref={stage}>
         <div
           className="canvas-wrap"
+          aria-busy={p.clips.length > 0 && !frameReady && !error}
           style={{
             width: fitted.width,
             height: fitted.height,

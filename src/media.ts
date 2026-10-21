@@ -11,6 +11,7 @@ import {
 } from 'mediabunny';
 import { id, tick, seconds, type Asset, type Project, activeTracks, audioGain } from './model';
 import { Stretch } from '@soundtouchjs/core';
+import { VIDEO_CONTEXT } from './color';
 type MediaResource = {
   input: Input;
   video?: InputVideoTrack;
@@ -116,7 +117,7 @@ export async function probe(file: File): Promise<Asset> {
         240,
         Math.max(1, Math.round((240 * asset.height) / asset.width)),
       );
-      c.getContext('2d')!.drawImage(r.image, 0, 0, c.width, c.height);
+      c.getContext('2d', VIDEO_CONTEXT)!.drawImage(r.image, 0, 0, c.width, c.height);
       asset.thumbnail = await blobData(await c.convertToBlob({ type: 'image/jpeg', quality: 0.7 }));
       return asset;
     }
@@ -145,6 +146,7 @@ export async function probe(file: File): Promise<Asset> {
     if (!Number.isFinite(asset.duration) || asset.duration <= 0)
       throw new Error('파일 길이를 읽을 수 없습니다. 파일을 확인하거나 다시 인코딩하세요.');
     if (video) {
+      asset.colorSpace = await video.getColorSpace();
       asset.width = video.displayWidth;
       asset.height = video.displayHeight;
       const sink = new CanvasSink(video, { width: 240, fit: 'contain', poolSize: 1 });
