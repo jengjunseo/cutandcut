@@ -1,0 +1,51 @@
+{
+  "scenario": "A",
+  "sourceKind": "synthetic-low-complexity-animation",
+  "measuredAt": "2026-10-22T07:13:22.922Z",
+  "host": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "cpu": "AMD Ryzen 3 4100 4-Core Processor              ",
+    "logicalCpus": 8,
+    "memoryBytes": 16957935616
+  },
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+  "hardwareEncoder": "not observable; WebCodecs support does not prove hardware acceleration",
+  "input": {
+    "width": 1920,
+    "height": 1080,
+    "durationUs": 300010667,
+    "videoCodec": "avc",
+    "audioCodec": "aac"
+  },
+  "output": {
+    "width": 1920,
+    "height": 1080,
+    "duration": 300.053333,
+    "fps": 30,
+    "bytes": 12114414,
+    "decodedSeeks": [
+      {
+        "time": 30.005333,
+        "readyState": 4
+      },
+      {
+        "time": 150.026666,
+        "readyState": 4
+      },
+      {
+        "time": 270.047999,
+        "readyState": 4
+      }
+    ]
+  },
+  "importToTimelineMs": 349.6171999999999,
+  "exportMs": 75474.9246,
+  "realtimeMultiplier": 3.9755367042791327,
+  "scrubResponseMs": [
+    131.60000002384186
+  ],
+  "peakMainJsHeapBytes": 13421968,
+  "errors": [],
+  "scope": "One run, original storage enabled, six fast seeks. Heap sampled every 500ms during export: main realm JS only, excludes Worker, PCM, decoder and GPU memory. Scrub samples are latest requested frame arrivals, not all intermediate requests. Private names/paths/content omitted. No original upload."
+}

@@ -1,0 +1,18 @@
+name: 버그 보고
+description: 편집·저장·출력 문제를 알려주세요. 개인정보와 원본은 자동 수집하지 않습니다.
+body:
+  - type: textarea
+    attributes:
+      label: 기대한 동작과 실제 결과
+      description: 재현 순서와 실패한 단계를 알려주세요. 파일명·개인 자막·연락처·원본 내용은 제외해주세요.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 기기·브라우저와 파일 형식
+      description: OS/브라우저 버전, 컨테이너·코덱·해상도·FPS·HDR 여부, 출력 설정을 알려주세요. 모르는 항목은 미확인으로 적어주세요.
+  - type: textarea
+    attributes:
+      label: 오류 코드·진단 정보 (있는 경우)
+      description: 오류 코드와 숫자 설정만 붙여넣어주세요. 파일명·프로젝트명·자막·개인정보·인증 정보는 지워주세요.
+      render: json

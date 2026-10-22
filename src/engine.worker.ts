@@ -14,6 +14,7 @@ import {
 import { probe, waveform, MediaPool, AudioMixer } from './media';
 import { Renderer } from './render';
 import { capabilities } from './codecs';
+import { failureEvent, PipelineFailure } from './failures';
 import { exportBudget, EXPORT_MAX_BYTES, EXPORT_LIMIT_LABEL } from './export-policy';
 import {
   duration,
@@ -33,7 +34,6 @@ let renderer: Renderer | undefined;
 type PreviewRequest = { project: Project; time: number; seq: number; width: number };
 let latest: PreviewRequest | undefined;
 let rendering = false;
-const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 scope.onmessage = (event) => {
   const data = event.data;
   if (data.type === 'file') {
@@ -49,7 +49,11 @@ scope.onmessage = (event) => {
     void probe(data.file)
       .then((asset) => scope.postMessage({ type: 'probe', requestId: data.requestId, asset }))
       .catch((e) =>
-        scope.postMessage({ type: 'error', requestId: data.requestId, error: errorText(e) }),
+        scope.postMessage({
+          type: 'error',
+          requestId: data.requestId,
+          ...failureEvent(e, 'probe'),
+        }),
       );
     return;
   }
@@ -57,7 +61,11 @@ scope.onmessage = (event) => {
     void waveform(data.file, data.asset as Asset)
       .then((peaks) => scope.postMessage({ type: 'waveform', requestId: data.requestId, peaks }))
       .catch((e) =>
-        scope.postMessage({ type: 'error', requestId: data.requestId, error: errorText(e) }),
+        scope.postMessage({
+          type: 'error',
+          requestId: data.requestId,
+          ...failureEvent(e, 'waveform'),
+        }),
       );
     return;
   }
@@ -67,7 +75,11 @@ scope.onmessage = (event) => {
         scope.postMessage({ type: 'capabilities', requestId: data.requestId, value }),
       )
       .catch((e) =>
-        scope.postMessage({ type: 'error', requestId: data.requestId, error: errorText(e) }),
+        scope.postMessage({
+          type: 'error',
+          requestId: data.requestId,
+          ...failureEvent(e, 'capabilities'),
+        }),
       );
     return;
   }
@@ -76,13 +88,17 @@ scope.onmessage = (event) => {
     void extra(data)
       .then((value) => scope.postMessage({ type: data.type, requestId: data.requestId, value }))
       .catch((e) =>
-        scope.postMessage({ type: 'error', requestId: data.requestId, error: errorText(e) }),
+        scope.postMessage({
+          type: 'error',
+          requestId: data.requestId,
+          ...failureEvent(e, data.type, data.project),
+        }),
       );
     return;
   }
   if (data.type === 'export')
     void exportProject(data.project, data.format, data.bitrate, data.range).catch((e) =>
-      scope.postMessage({ type: 'error', error: errorText(e) }),
+      scope.postMessage({ type: 'error', ...failureEvent(e, 'export', data.project) }),
     );
 };
 async function extra(data: { type: string; project: Project; time: number }) {
@@ -118,19 +134,28 @@ async function preview() {
     while (latest) {
       const data = latest;
       latest = undefined;
-      const { project: p } = data;
-      const width = Math.min(p.width, data.width),
-        height = Math.round((width * p.height) / p.width);
-      if (!renderer || renderer.canvas.width !== width || renderer.canvas.height !== height) {
-        await renderer?.close();
-        renderer = new Renderer(pool, new OffscreenCanvas(width, height));
+      try {
+        const { project: p } = data;
+        const width = Math.min(p.width, data.width),
+          height = Math.round((width * p.height) / p.width);
+        if (!renderer || renderer.canvas.width !== width || renderer.canvas.height !== height) {
+          await renderer?.close();
+          renderer = new Renderer(pool, new OffscreenCanvas(width, height));
+        }
+        await renderer.render(p, data.time);
+        const bitmap = renderer.canvas.transferToImageBitmap();
+        scope.postMessage({ type: 'frame', seq: data.seq, bitmap }, [bitmap]);
+      } catch (e) {
+        // Drop broken cursors, then process the already-queued latest request.
+        await renderer?.close().catch(() => {});
+        renderer = undefined;
+        scope.postMessage({
+          type: 'preview-error',
+          seq: data.seq,
+          ...failureEvent(e, 'preview', data.project),
+        });
       }
-      await renderer.render(p, data.time);
-      const bitmap = renderer.canvas.transferToImageBitmap();
-      scope.postMessage({ type: 'frame', seq: data.seq, bitmap }, [bitmap]);
     }
-  } catch (e) {
-    scope.postMessage({ type: 'preview-error', error: errorText(e) });
   } finally {
     rendering = false;
   }
@@ -161,7 +186,8 @@ async function exportProject(
     );
   const caps = await capabilities(p, bitrate, format);
   if (!caps[format])
-    throw new Error(
+    throw new PipelineFailure(
+      'OUTPUT_UNSUPPORTED',
       caps.errors?.[format] ??
         '선택한 해상도·FPS·코덱의 인코더를 사용할 수 없습니다. WebM 또는 WAV를 선택하세요.',
     );

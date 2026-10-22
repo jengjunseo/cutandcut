@@ -1,6 +1,7 @@
 import EngineWorker from './engine.worker?worker';
 import type { Asset, Project } from './model';
 import type { Capabilities } from './codecs';
+import { workerFailure, PipelineFailure } from './failures';
 export type { Capabilities } from './codecs';
 export const files = new Map<string, File>();
 let requestId = 0;
@@ -76,10 +77,17 @@ export function request<T>(
           worker = createEngine();
           worker.onmessage = (event) => {
             if (event.data.requestId !== rid) return;
-            if (event.data.type === 'error') finish(new Error(event.data.error));
+            if (event.data.type === 'error') finish(workerFailure(event.data));
             else finish(undefined, event.data.asset ?? event.data.peaks ?? event.data.value);
           };
           worker.onerror = (e) => finish(new Error(e.message));
+          worker.onmessageerror = () =>
+            finish(
+              new PipelineFailure(
+                'WORKER_MESSAGE',
+                '작업 결과를 읽지 못했습니다. 프로젝트는 유지됩니다. 다시 시도하세요.',
+              ),
+            );
           worker.postMessage({ type, requestId: rid, ...data });
         } catch (e) {
           finish(e instanceof Error ? e : new Error(String(e)));

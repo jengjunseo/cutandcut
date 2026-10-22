@@ -1,0 +1,86 @@
+{
+  "hardwareEncoder": "미확인",
+  "environment": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "cpu": "AMD Ryzen 3 4100 4-Core Processor              ",
+    "logicalCpus": 8,
+    "memoryBytes": 16957935616
+  },
+  "localFinalBuild": {
+    "capabilityReadyMs": 1439.5749,
+    "firstVerifiedActionMs": 652.2054,
+    "groups": {
+      "other": {
+        "requests": 1,
+        "reportedEncodedBodyBytes": 747,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 735
+      },
+      "css": {
+        "requests": 1,
+        "reportedEncodedBodyBytes": 65685,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 227108
+      },
+      "js": {
+        "requests": 3,
+        "reportedEncodedBodyBytes": 118235,
+        "unknownEncodedRequests": 2,
+        "decodedBodyBytes": 2031785
+      },
+      "font": {
+        "requests": 19,
+        "reportedEncodedBodyBytes": 182652,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 182652
+      },
+      "encoder-js-with-embedded-wasm": {
+        "requests": 1,
+        "reportedEncodedBodyBytes": 131671,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 311247
+      }
+    }
+  },
+  "baselineProduction": {
+    "capabilityReadyMs": 1495.4462000000003,
+    "firstVerifiedActionMs": 556.5855,
+    "groups": {
+      "other": {
+        "requests": 1,
+        "reportedEncodedBodyBytes": 1114,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 735
+      },
+      "css": {
+        "requests": 1,
+        "reportedEncodedBodyBytes": 42936,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 227108
+      },
+      "js": {
+        "requests": 3,
+        "reportedEncodedBodyBytes": 121381,
+        "unknownEncodedRequests": 2,
+        "decodedBodyBytes": 2027011
+      },
+      "font": {
+        "requests": 19,
+        "reportedEncodedBodyBytes": 186067,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 182652
+      },
+      "encoder-js-with-embedded-wasm": {
+        "requests": 1,
+        "reportedEncodedBodyBytes": 130736,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 311247
+      }
+    }
+  },
+  "measuredAt": "2026-10-22T06:58:23.457Z",
+  "comparison": "서버와 압축 방식이 다르고 각 1회 실행이므로 속도 개선율을 주장하지 않는다.",
+  "scope": "Fresh context, cache disabled; first verified menu click, not standardized TTI. Worker decoded sizes included, Worker wire sizes unknown. Other wire sizes are Playwright-reported, not a packet capture. Encoders embed WASM in JS; byte categories do not double-count. No media uploaded.",
+  "browser": "Chrome 155"
+}

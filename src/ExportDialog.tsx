@@ -14,6 +14,7 @@ import { download } from './storage';
 import { Field, IconButton, formatBytes, trapDialogFocus } from './ui';
 import { ratioOf, setRatio, ratios } from './geometry';
 import { sourceColorWarning } from './color';
+import { ProgressWatch } from './progress-watch';
 import {
   exportBudget,
   EXPORT_MAX_BYTES,
@@ -41,6 +42,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
     [error, setError] = useState(''),
     [blob, setBlob] = useState<Blob | null>(null);
   const worker = useRef<Worker | null>(null),
+    watch = useRef<ProgressWatch | null>(null),
     generation = useRef(0),
     dialog = useRef<HTMLDivElement>(null);
   const [audioStats, setAudioStats] = useState<{ peak: number; clippedSamples: number }>();
@@ -84,6 +86,8 @@ export default function ExportDialog({ project, onClose, range }: Props) {
   const budget = exportBudget(format, length, snapshot.fps, bitrate * 1e6);
   const estimate = budget.estimate;
   function stopWorker() {
+    watch.current?.stop();
+    watch.current = null;
     generation.current++;
     worker.current?.terminate();
     worker.current = null;
@@ -145,6 +149,11 @@ export default function ExportDialog({ project, onClose, range }: Props) {
       setError(message);
       setStatus('error');
     };
+    watch.current = new ProgressWatch(() =>
+      fail(
+        '내보내기 진행이 120초 동안 멈췄습니다. 프로젝트는 유지됩니다. 다시 시도하거나 출력 구간·해상도를 줄이세요.',
+      ),
+    );
     try {
       const w = createEngine();
       worker.current = w;
@@ -156,6 +165,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
         if (gen !== generation.current) return;
         const d = e.data;
         if (d.type === 'progress') {
+          watch.current?.advance(`${d.stage}:${d.frames ?? d.progress}`);
           setProgress(d.progress);
           setStage(d.stage + (d.frames ? ` · ${d.frames}/${d.total} 프레임` : ''));
         } else if (d.type === 'complete') {
@@ -178,6 +188,8 @@ export default function ExportDialog({ project, onClose, range }: Props) {
         }
       };
       w.onerror = (e) => fail(e.message || '내보내기 Worker를 실행할 수 없습니다.');
+      w.onmessageerror = () =>
+        fail('내보내기 결과를 읽지 못했습니다. 프로젝트는 유지됩니다. 다시 시도하세요.');
       w.postMessage({
         type: 'export',
         project: snapshot,

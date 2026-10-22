@@ -8,6 +8,10 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "bench:startup": "node scripts/measure-startup.mjs",
+    "bench:fixtures": "node scripts/generate-bench.mjs",
+    "bench:media": "playwright test tests/e2e/performance.spec.ts --reporter=list",
     "test:e2e": "playwright test"
   },
   "dependencies": {

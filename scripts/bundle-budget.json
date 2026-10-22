@@ -1,0 +1,16 @@
+{
+  "baseline": {
+    "initialJsGzip": 117846,
+    "startupWorkerGzip": 213552,
+    "encoderJsGzip": 388388,
+    "cssGzip": 65620,
+    "fontRaw": 9724900
+  },
+  "max": {
+    "initialJsGzip": 129631,
+    "startupWorkerGzip": 234908,
+    "encoderJsGzip": 427227,
+    "cssGzip": 72182,
+    "fontRaw": 10697390
+  }
+}

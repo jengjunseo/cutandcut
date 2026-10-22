@@ -12,6 +12,7 @@ import {
 import { id, tick, seconds, type Asset, type Project, activeTracks, audioGain } from './model';
 import { Stretch } from '@soundtouchjs/core';
 import { VIDEO_CONTEXT } from './color';
+import { PipelineFailure } from './failures';
 type MediaResource = {
   input: Input;
   video?: InputVideoTrack;
@@ -48,7 +49,8 @@ export class MediaPool {
       return r;
     }
     const file = this.files.get(assetId);
-    if (!file) throw new Error('누락된 원본 파일을 보관함에서 재연결하세요.');
+    if (!file)
+      throw new PipelineFailure('MISSING_SOURCE', '누락된 원본 파일을 보관함에서 재연결하세요.');
     const isImage = /^image\//.test(file.type) || /\.(png|jpe?g|webp|gif|avif)$/i.test(file.name);
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
     try {
@@ -65,7 +67,8 @@ export class MediaPool {
       if (this.resources.size >= 12) {
         const key = [...this.resources.keys()].find((k) => !this.pins.has(k));
         if (!key) {
-          throw new Error(
+          throw new PipelineFailure(
+            'RESOURCE_LIMIT',
             '동시 디코딩 원본 12개 한도를 초과합니다. 일부 트랙을 숨기거나 음소거하세요.',
           );
         }
@@ -88,7 +91,8 @@ export class MediaPool {
   }
 }
 export async function probe(file: File): Promise<Asset> {
-  if (file.size === 0) throw new Error('빈 파일입니다. 다른 파일을 선택하세요.');
+  if (file.size === 0)
+    throw new PipelineFailure('EMPTY_FILE', '빈 파일입니다. 다른 파일을 선택하세요.');
   const asset: Asset = {
     id: id(),
     name: file.name,
@@ -125,11 +129,13 @@ export async function probe(file: File): Promise<Asset> {
     asset.container = (await input.getFormat()).name;
     if (!video && !audio) throw new Error('편집 가능한 영상·오디오 트랙이 없습니다.');
     if (video && !(await video.canDecode()))
-      throw new Error(
+      throw new PipelineFailure(
+        'VIDEO_UNSUPPORTED',
         `${asset.container} 안의 영상 코덱 ${video.codec ?? '알 수 없음'}을 이 브라우저가 디코딩하지 못합니다. MP4/H.264로 변환 후 다시 가져오세요.`,
       );
     if (audio && !(await audio.canDecode()))
-      throw new Error(
+      throw new PipelineFailure(
+        'AUDIO_UNSUPPORTED',
         `${asset.container} 안의 오디오 코덱 ${audio.codec ?? '알 수 없음'}을 디코딩하지 못합니다. AAC, MP3 또는 PCM WAV로 변환하세요.`,
       );
     asset.kind = video ? 'video' : 'audio';
@@ -158,6 +164,7 @@ export async function probe(file: File): Promise<Asset> {
     }
     return asset;
   } catch (e) {
+    if (e instanceof PipelineFailure) throw e;
     if (e instanceof Error && /변환|파일|코덱|트랙|디코딩/.test(e.message)) throw e;
     throw new Error(
       '파일을 분석할 수 없습니다. 손상 여부를 확인하거나 MP4/H.264 + AAC 또는 PCM WAV로 변환하세요.',

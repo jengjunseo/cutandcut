@@ -97,10 +97,13 @@ export default function Preview({
           setFrameReady(true);
         }
         bitmap.close();
-      } else if (e.data.type === 'preview-error') setError(e.data.error);
+      } else if (e.data.type === 'preview-error' && e.data.seq === seq.current)
+        setError(e.data.error);
     };
     w.onerror = () =>
       setError('미리보기 엔진을 시작할 수 없습니다. Chrome 또는 Edge에서 다시 시도하세요.');
+    w.onmessageerror = () =>
+      setError('미리보기 결과를 읽지 못했습니다. 프로젝트를 저장하고 새로고침하세요.');
     return () => {
       w.terminate();
       worker.current = null;

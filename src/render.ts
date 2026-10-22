@@ -85,16 +85,26 @@ export class Renderer {
     }
   }
   private async releaseInactive(active: Set<string>) {
+    let failure: unknown;
     for (const [key, cursor] of this.cursors)
       if (!active.has(key)) {
-        await cursor.close();
-        this.pool.release(cursor.assetId);
-        this.cursors.delete(key);
+        try {
+          await cursor.close();
+        } catch (error) {
+          failure ??= error;
+        } finally {
+          this.pool.release(cursor.assetId);
+          this.cursors.delete(key);
+        }
       }
+    if (failure) throw failure;
   }
   async close() {
-    await this.releaseInactive(new Set());
-    this.canvas.width = this.canvas.height = 1;
+    try {
+      await this.releaseInactive(new Set());
+    } finally {
+      this.canvas.width = this.canvas.height = 1;
+    }
   }
 }
 function drawText(

@@ -9,6 +9,29 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('a decoder close failure still unpins all ended sources and releases the compositor buffer', async () => {
+  const pool = new MediaPool();
+  const canvas = { width: 1920, height: 1080 } as OffscreenCanvas;
+  const renderer = new Renderer(pool, canvas);
+  const closed: string[] = [];
+  for (const key of ['broken', 'healthy']) {
+    pool.pin(key);
+    renderer.cursors.set(key, {
+      assetId: key,
+      close: async () => {
+        closed.push(key);
+        if (key === 'broken') throw new Error('close failed');
+      },
+    } as unknown as VideoCursor);
+  }
+  await expect(renderer.close()).rejects.toThrow('close failed');
+  expect(closed).toEqual(['broken', 'healthy']);
+  expect(pool.pins.size).toBe(0);
+  expect(renderer.cursors.size).toBe(0);
+  expect([canvas.width, canvas.height]).toEqual([1, 1]);
+  pool.close();
+});
+
 it('disposes uncached Input when demux fails, allowing a clean retry', async () => {
   vi.spyOn(Input.prototype, 'getPrimaryVideoTrack').mockRejectedValue(new Error('demux failed'));
   vi.spyOn(Input.prototype, 'getPrimaryAudioTrack').mockResolvedValue(null);
