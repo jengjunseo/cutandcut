@@ -82,5 +82,41 @@
   "measuredAt": "2026-10-22T06:58:23.457Z",
   "comparison": "서버와 압축 방식이 다르고 각 1회 실행이므로 속도 개선율을 주장하지 않는다.",
   "scope": "Fresh context, cache disabled; first verified menu click, not standardized TTI. Worker decoded sizes included, Worker wire sizes unknown. Other wire sizes are Playwright-reported, not a packet capture. Encoders embed WASM in JS; byte categories do not double-count. No media uploaded.",
-  "browser": "Chrome 155"
+  "browser": "Chrome 155",
+  "productionFinalBuild": {
+    "capabilityReadyMs": 1504.1145,
+    "firstVerifiedActionMs": 550.1366,
+    "groups": {
+      "other": {
+        "requests": 1,
+        "reportedEncodedBodyBytes": 1112,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 735
+      },
+      "css": {
+        "requests": 1,
+        "reportedEncodedBodyBytes": 42935,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 227108
+      },
+      "js": {
+        "requests": 3,
+        "reportedEncodedBodyBytes": 121586,
+        "unknownEncodedRequests": 2,
+        "decodedBodyBytes": 2031785
+      },
+      "font": {
+        "requests": 19,
+        "reportedEncodedBodyBytes": 186103,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 182652
+      },
+      "encoder-js-with-embedded-wasm": {
+        "requests": 1,
+        "reportedEncodedBodyBytes": 130728,
+        "unknownEncodedRequests": 0,
+        "decodedBodyBytes": 311247
+      }
+    }
+  }
 }

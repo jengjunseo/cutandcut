@@ -15,6 +15,16 @@ Windows Chrome 155에서 단위 **71개**, strict/unused 타입, 최종 배포 �
 
 전체 검사 종료 뒤 최종 배포 빌드(5175)에서 별도로 5분 가로·5분 세로·1분 4K **합성 SDR AVC/AAC** 입력의 가져오기/탐색/1080p MP4 출력/다운로드/실제 플레이어 3시각 탐색 **3개 모두 통과**했다(3.1분). 출력은 각각 약 75.5/75.5/20.7초였다. 원본 자동 보관을 포함하며 입력은 저복잡도 도형과 톤이므로 실제 촬영본·HDR·휴대전화·대규모 레이어 성능으로 확대하지 않는다. 초기 로드 1회 관찰, Worker wire bytes 미확인, 메인 JS heap만 샘플링한 한계와 원본 결과는 [PERFORMANCE.md](PERFORMANCE.md)에 명시했다. 하네스 첫 실행의 탐색 대기 오류는 제품 변경 없이 실제 최신 Worker 프레임 도착을 기다리도록 수정했다.
 
+### 안정성 패스 운영 배포
+
+코드 커밋 `039436a67156fd813be02c639036d532e71b7715`의 GitHub main 연동 배포는 Vercel production/Ready다. 배포 ID는 `dpl_DzuRkzi4vtzHPh3JmcjDUTcPsEZ7`, 고정 주소는 [cutandcut-87yirwhi8](https://cutandcut-87yirwhi8-wondaes-projects-fe5c826b.vercel.app), 공개 주소는 [cutandcut.vercel.app](https://cutandcut.vercel.app)다. 운영 HTTP 200과 로컬 최종 빌드와 같은 `index-B0_usBTJ.js`를 확인했다. [GitHub Quality CI](https://github.com/jengjunseo/cutandcut/actions/runs/39739692028)의 npm ci·단위·타입·빌드·번들 예산 검사가 실제 성공했다.
+
+운영 HTML은 `public, must-revalidate, max-age=0`, 해시가 있는 main JS·Worker·CSS는 `public, max-age=31536000, immutable`이다. HTML을 장기 캐시하거나 서비스 워커를 추가하지 않는다.
+
+새 Chrome 컨텍스트에서 운영 전용 **2개 검사 모두 통과**했다(1.9분). 기존 프로젝트 JSON/누락 원본 재연결→푸른 여백 확인→검정 변경→1080×1920 MP4→모바일 모드/재열기→같은 프레임·색·길이의 MP4를 확인했다. 별도로 한글·실제 영상/PNG/WAV 편집 후 기존 720p 가로/세로 AVC/AAC MP4, VP9/Opus WebM, PCM WAV, MP3를 다운로드·재생·오디오 분석했고 페이지 예외는 없었다. [출력 형식](results/stability-formats-production.json) · [색상/프레임](results/stability-color-production.json) · [HTTP 헤더](results/stability-headers-production.json).
+
+운영 검사 종료 후 별도 새 컨텍스트/캐시 비활성의 1회 시작 관찰은 메뉴 확인 550ms·출력 지원 확인 1,504ms였다. 변경 전 운영 557ms·1,495ms와의 차이는 단회 관찰이므로 통계적인 개선·회귀로 판정하지 않는다. 폰트/MP3 확장 decoded 크기는 유지됐다. [관찰 수치](results/stability-startup.json). 이번 운영 검증은 Windows Chrome이며 실기기 Galaxy/iPhone·HDR 촬영본·모바일 장시간 메모리 부하는 미검증이다.
+
 ## PC·모바일 푸른 여백과 색상 일치 · 2026-10-22
 
 사용자 제공 화면의 푸른 여백 RGB(17,24,30)은 기존 기본 캔버스 배경 `#111820`과 가깝다. 실제 1080×1920 MP4에서 이 배경은 RGB(18,24,32)로 재현됐으며 검정으로 변경한 뒤 RGB(0,0,0)으로 디코딩됐다. 새 프로젝트는 PC·모바일 모두 검정으로 시작하고, 기존 배경은 유지하며 프로젝트 설정의 `검정으로` 버튼으로 변경·undo/redo할 수 있다. 원인·변경·위험과 미검증 범위는 [COLOR_PARITY.md](COLOR_PARITY.md)에 있다.

@@ -1,0 +1,22 @@
+[
+  {
+    "path": "/",
+    "status": 200,
+    "cache": "public, must-revalidate, max-age=0"
+  },
+  {
+    "path": "/assets/index-B0_usBTJ.js",
+    "status": 200,
+    "cache": "public, max-age=31536000, immutable"
+  },
+  {
+    "path": "/assets/engine.worker-BX5BqDOv.js",
+    "status": 200,
+    "cache": "public, max-age=31536000, immutable"
+  },
+  {
+    "path": "/assets/index-Q5r2w5Gv.css",
+    "status": 200,
+    "cache": "public, max-age=31536000, immutable"
+  }
+]
