@@ -16,6 +16,12 @@ Windows Chrome **156**에서 단위 **72개**, strict/unused 타입, 프로덕�
 
 가로/세로 MP4·WebM·WAV·MP3, 모바일 실제 편집·출력, 자막 복사/붙여넣기, Shotcut 단축키, 링크/잠금/트랙 이동, 저장·복구·프로젝트 전환, 인코더 모듈 실패, 4K60 회전 입력→1080p 출력의 기존 시나리오를 검사했다. Galaxy/iPhone 실기기, Safari/Firefox, 실제 2GiB 초과 원본 보관/복구, RF64 4GiB 초과 출력과 장시간 복잡한 영상의 최대 자원 사용은 미검증이다.
 
+### 용량 상한 제거 운영 배포
+
+코드 커밋 `12e551c0549f44f583b66434688030c0eecf3126`은 기존 Vercel `cutandcut` 프로젝트의 production/Ready로 배포됐다. 배포 ID는 `dpl_3mjytmADPd6wTRa3BDf6Q54xVMwd`, 고정 주소는 [cutandcut-l4lbiq5mx](https://cutandcut-l4lbiq5mx-wondaes-projects-fe5c826b.vercel.app), 공개 주소는 [cutandcut.vercel.app](https://cutandcut.vercel.app)다. [Quality CI](https://github.com/jengjunseo/cutandcut/actions/runs/41265814539)의 의존성 설치·단위·타입·빌드·번들 예산이 모두 성공했다. 운영의 `index-3nJyE5sg.js`와 `engine.worker-Bs8zgva4.js`는 로컬 최종 빌드와 각각 SHA-256이 일치했다.
+
+운영 전용 **2개 검사 모두 통과**했다(1.9분). 새 Chrome 컨텍스트에서 실제 MP4/PNG/WAV 입력·한글 합성 후 가로/세로 AVC/AAC MP4, VP9/Opus WebM, PCM WAV, MP3 다운로드·실제 플레이어/오디오 분석을 수행했다. 기존 프로젝트 재연결·검정 여백 변경·1080×1920 MP4·모바일 UI 전환/재열기에서도 픽셀/프레임·길이가 일치했으며 페이지 예외는 없었다. [출력 형식](results/unbounded-formats-production.json) · [색상/프레임](results/unbounded-color-production.json). 1GiB 초과 파일은 로컬에서 같은 코드로 검증했으며 운영에서 다시 생성했다고 주장하지 않는다. 이 문서의 후속 기록 커밋은 앱 코드를 변경하지 않는다.
+
 ## UX/UI 유지 안정성 패스 · 2026-10-22
 
 첨부 지시서의 V1–V10을 코드·빌드·운영 응답에서 확인하고, 화면과 편집 규칙을 유지하는 범위로 작업했다. 상세 판단·위험·실기기 미검증 매트릭스는 [STABILITY_DIRECTIVE.md](STABILITY_DIRECTIVE.md), 번들·초기 로드·영상 측정 범위는 [PERFORMANCE.md](PERFORMANCE.md)에 있다.
