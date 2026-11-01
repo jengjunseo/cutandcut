@@ -17,6 +17,10 @@ for (const scenario of [
     );
     test.setTimeout(30 * 60 * 1000);
     await fs.access(path!);
+    // Measure the automatic OPFS route without an operating-system save dialog in headless runs.
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'showSaveFilePicker', { value: undefined });
+    });
     await page.goto('/');
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.name)); // No raw error text in report.

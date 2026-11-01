@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 
-test('encoded-byte guard aborts early, preserves the project and allows a fresh retry', async ({
+test('actual output quota failure cleans temporary files, preserves the project and allows retry', async ({
   page,
 }) => {
   test.skip(!!process.env.TEST_URL, 'Fault injection uses the local Worker source.');
@@ -13,10 +13,14 @@ test('encoded-byte guard aborts early, preserves the project and allows a fresh 
   await page.keyboard.press('Control+s');
   const before = JSON.parse(await fs.readFile((await (await beforeDownload).path())!, 'utf8'));
   let injected = 0;
-  await page.route('**/src/engine.worker.ts?*', async (route) => {
+  await page.route('**/src/engine.worker.ts?worker_file*', async (route) => {
     const response = await route.fetch();
     const original = await response.text();
-    const body = original.replace('encodedBytes >= EXPORT_MAX_BYTES', 'encodedBytes >= 4096');
+    const marker = 'sink = await createExportOutput(destination, format);';
+    const body = original.replace(
+      marker,
+      `${marker}\nthrow new DOMException('Injected full disk', 'QuotaExceededError');`,
+    );
     if (body !== original) injected++;
     await route.fulfill({ response, body });
   });
@@ -24,9 +28,21 @@ test('encoded-byte guard aborts early, preserves the project and allows a fresh 
   await expect(page.getByLabel('파일 형식')).toBeEnabled();
   await page.getByLabel('파일 형식').selectOption('wav');
   await page.getByRole('dialog').getByRole('button', { name: '내보내기', exact: true }).click();
-  await expect(page.locator('.export-error')).toContainText('실제 출력이 1GiB를 초과');
+  await expect(page.locator('.export-error')).toContainText('실제 저장 공간이 부족');
   expect(injected).toBeGreaterThan(0);
-  await page.unroute('**/src/engine.worker.ts?*');
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const folder = await (
+          await navigator.storage.getDirectory()
+        ).getDirectoryHandle('cyancut-export-temporary');
+        let count = 0;
+        for await (const _ of (folder as any).values()) count++;
+        return count;
+      }),
+    )
+    .toBe(0);
+  await page.unroute('**/src/engine.worker.ts?worker_file*');
   await page.getByRole('button', { name: '다시 시도', exact: true }).click();
   await expect(page.getByText('내보내기가 완료됐습니다.')).toBeVisible();
   await page.getByRole('button', { name: '편집으로 돌아가기', exact: true }).click();

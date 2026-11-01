@@ -15,12 +15,15 @@ import { Field, IconButton, formatBytes, trapDialogFocus } from './ui';
 import { ratioOf, setRatio, ratios } from './geometry';
 import { sourceColorWarning } from './color';
 import { ProgressWatch } from './progress-watch';
+import { exportBudget } from './export-policy';
 import {
-  exportBudget,
-  EXPORT_MAX_BYTES,
-  EXPORT_MAX_SECONDS,
-  EXPORT_LIMIT_LABEL,
-} from './export-policy';
+  chooseExportFile,
+  removeExportFile,
+  pruneExportFiles,
+  exportMime,
+  holdExportFile,
+  type ExportDestination,
+} from './export-files';
 type Props = {
   project: Project;
   onClose: () => void;
@@ -42,10 +45,15 @@ export default function ExportDialog({ project, onClose, range }: Props) {
     [error, setError] = useState(''),
     [blob, setBlob] = useState<Blob | null>(null);
   const worker = useRef<Worker | null>(null),
+    destination = useRef<ExportDestination | undefined>(undefined),
+    temporaryResult = useRef<string | undefined>(undefined),
+    downloaded = useRef(false),
+    releaseFile = useRef<(() => void) | undefined>(undefined),
     watch = useRef<ProgressWatch | null>(null),
     generation = useRef(0),
     dialog = useRef<HTMLDivElement>(null);
   const [audioStats, setAudioStats] = useState<{ peak: number; clippedSamples: number }>();
+  const [savedToFile, setSavedToFile] = useState(false);
   const from = useRange && range ? range.start : 0;
   const to = useRange && range ? Math.min(duration(snapshot), range.end) : duration(snapshot);
   const visualTracks = activeTracks(snapshot, 'visual');
@@ -91,6 +99,13 @@ export default function ExportDialog({ project, onClose, range }: Props) {
     generation.current++;
     worker.current?.terminate();
     worker.current = null;
+    if (destination.current && !destination.current.handle)
+      void removeExportFile(destination.current.id);
+    destination.current = undefined;
+    if (!temporaryResult.current) {
+      releaseFile.current?.();
+      releaseFile.current = undefined;
+    }
   }
   useEffect(() => {
     let active = true;
@@ -115,9 +130,14 @@ export default function ExportDialog({ project, onClose, range }: Props) {
   }, [snapshot.width, snapshot.height, snapshot.fps, bitrate]);
   useEffect(() => {
     const old = document.activeElement as HTMLElement;
+    void pruneExportFiles();
     dialog.current?.focus();
     return () => {
       stopWorker();
+      if (temporaryResult.current && !downloaded.current)
+        void removeExportFile(temporaryResult.current);
+      releaseFile.current?.();
+      releaseFile.current = undefined;
       old?.focus();
     };
   }, []);
@@ -134,27 +154,38 @@ export default function ExportDialog({ project, onClose, range }: Props) {
               : '';
     if (selector) dialog.current?.querySelector<HTMLElement>(selector)?.focus();
   }, [status]);
-  function start() {
-    if (worker.current || !canExport) return;
+  async function start() {
+    if (worker.current || status === 'running' || !canExport) return;
     setStatus('running');
     setError('');
     setBlob(null);
+    setSavedToFile(false);
     setAudioStats(undefined);
     setProgress(0);
     setStage('엔진 시작');
     const gen = ++generation.current;
+    const job: ExportDestination = { id: crypto.randomUUID() };
+    destination.current = job;
     const fail = (message: string) => {
       if (gen !== generation.current) return;
       stopWorker();
       setError(message);
       setStatus('error');
     };
-    watch.current = new ProgressWatch(() =>
-      fail(
-        '내보내기 진행이 120초 동안 멈췄습니다. 프로젝트는 유지됩니다. 다시 시도하거나 출력 구간·해상도를 줄이세요.',
-      ),
-    );
     try {
+      job.handle = await chooseExportFile(filename, format, estimate);
+      if (gen !== generation.current) return;
+      const release = await holdExportFile(job.id);
+      if (gen !== generation.current) {
+        release();
+        return;
+      }
+      releaseFile.current = release;
+      watch.current = new ProgressWatch(() =>
+        fail(
+          '내보내기 진행이 120초 동안 멈췄습니다. 프로젝트는 유지됩니다. 다시 시도하거나 출력 구간·해상도를 줄이세요.',
+        ),
+      );
       const w = createEngine();
       worker.current = w;
       for (const a of snapshot.assets) {
@@ -170,17 +201,11 @@ export default function ExportDialog({ project, onClose, range }: Props) {
           setStage(d.stage + (d.frames ? ` · ${d.frames}/${d.total} 프레임` : ''));
         } else if (d.type === 'complete') {
           setAudioStats(d.audio);
-          const result = new Blob([d.buffer], {
-            type:
-              format === 'mp4'
-                ? 'video/mp4'
-                : format === 'webm'
-                  ? 'video/webm'
-                  : format === 'mp3'
-                    ? 'audio/mpeg'
-                    : 'audio/wav',
-          });
+          const result: Blob = d.file ?? new Blob([d.buffer], { type: exportMime(format) });
+          if (d.temporary) temporaryResult.current = job.id;
+          destination.current = undefined;
           setBlob(result);
+          setSavedToFile(!!job.handle);
           setStatus('done');
           stopWorker();
         } else if (d.type === 'error') {
@@ -196,8 +221,14 @@ export default function ExportDialog({ project, onClose, range }: Props) {
         format,
         bitrate: bitrate * 1e6,
         range: { start: from, end: to },
+        destination: job,
       });
     } catch (e) {
+      if (gen !== generation.current) return;
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        cancel();
+        return;
+      }
       fail(e instanceof Error ? e.message : '내보내기 Worker를 실행할 수 없습니다.');
     }
   }
@@ -406,10 +437,9 @@ export default function ExportDialog({ project, onClose, range }: Props) {
               </>
             ) : null}
             <p className="export-note">
-              예상 파일 크기 약 {formatBytes(estimate)}. 현재 설정 최대 길이{' '}
-              {Math.floor(budget.maxSeconds / 60)}분 {Math.floor(budget.maxSeconds % 60)}초 (
-              {EXPORT_LIMIT_LABEL} 중 먼저 도달하는 제한). 출력 설정은 이번 파일에만 적용됩니다.
-              프로젝트 타임라인은 60분까지입니다.
+              예상 파일 크기 약 {formatBytes(estimate)}. 고정 용량·시간 제한은 없습니다. 큰 파일은
+              지원 브라우저에서 저장 위치를 먼저 선택하며, 그 외에는 기기 임시 저장소를 사용합니다.
+              실제 저장 공간·메모리·브라우저와 파일 형식의 처리 범위에 따라 달라집니다.
             </p>
             {caps?.aacFallback && format === 'mp4' ? (
               <p className="export-note">
@@ -424,11 +454,6 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                   있습니다.
                 </p>
               ))}
-            {estimate >= EXPORT_MAX_BYTES ? (
-              <p className="warning">
-                예상 파일이 1GiB 제한을 초과합니다. 범위나 비트레이트를 줄이세요.
-              </p>
-            ) : null}
             {!caps ? (
               <p className="checking" role="status">
                 <LoaderCircle size={14} className="spin" /> 현재 환경의 인코더 확인 중
@@ -439,9 +464,6 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                 <TriangleAlert size={16} /> 원본 누락: {missing.map((a) => a.name).join(', ')}. 먼저
                 재연결하세요.
               </p>
-            ) : null}
-            {length > EXPORT_MAX_SECONDS ? (
-              <p className="warning">현재 내보내기 길이는 {EXPORT_MAX_SECONDS / 60}분까지입니다.</p>
             ) : null}
             {colorWarnings.map((asset) => (
               <p className="asset-color-note" key={asset.id}>
@@ -503,6 +525,9 @@ export default function ExportDialog({ project, onClose, range }: Props) {
             <p>
               {formatBytes(blob.size)} · {format.toUpperCase()}
             </p>
+            {savedToFile ? (
+              <p>선택한 위치에 저장했습니다. 다운로드로 사본을 받을 수도 있습니다.</p>
+            ) : null}
             {audioStats && audioStats.clippedSamples > 0 ? (
               <p className="warning">
                 오디오 클리핑 {audioStats.clippedSamples}개 샘플 · 원본 믹스 피크{' '}
@@ -554,7 +579,10 @@ export default function ExportDialog({ project, onClose, range }: Props) {
               </button>
               <button
                 className="primary"
-                onClick={() => download(blob, `${filename.trim() || 'CyanCut'}.${format}`)}
+                onClick={() => {
+                  downloaded.current = true;
+                  download(blob, `${filename.trim() || 'CyanCut'}.${format}`);
+                }}
               >
                 <Download size={16} /> 파일 다운로드
               </button>

@@ -214,11 +214,12 @@ test('stability: stalled export and message decoding failure release the worker 
   await page.getByLabel('파일 형식').selectOption('wav');
   await page.clock.install();
   await page.evaluate(() => {
-    const state = { mode: 'hang', terminated: 0 };
+    const state = { mode: 'hang', terminated: 0, posted: 0 };
     Object.assign(window, { stabilityExport: state });
     const send = Worker.prototype.postMessage,
       stop = Worker.prototype.terminate;
     Worker.prototype.postMessage = function (data, options) {
+      if (data.type === 'export') state.posted++;
       if (data.type === 'export' && state.mode !== 'normal') {
         if (state.mode === 'clone')
           this.onmessageerror?.call(this, new MessageEvent('messageerror'));
@@ -233,6 +234,14 @@ test('stability: stalled export and message decoding failure release the worker 
   });
   const dialog = page.getByRole('dialog', { name: '내보내기', exact: true });
   await dialog.getByRole('button', { name: '내보내기', exact: true }).click();
+  // Saving destination/lease is asynchronous; only advance time once the Worker job has started.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { stabilityExport: { posted: number } }).stabilityExport.posted,
+      ),
+    )
+    .toBe(1);
   await page.clock.fastForward(121000);
   await expect(dialog.locator('.export-error')).toContainText('120초');
   await page.evaluate(

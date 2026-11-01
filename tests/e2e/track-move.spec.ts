@@ -234,10 +234,16 @@ test('capacity: a six-minute timeline can export an actual PCM WAV', async ({ pa
   const length = page.getByRole('spinbutton', { name: '길이 (초)', exact: true });
   await length.fill('360');
   await length.press('Enter');
+  await page.getByRole('button', { name: '프로젝트 메뉴', exact: true }).click();
+  await page.getByRole('button', { name: '전체 음량 검사 · 피크 정규화', exact: true }).click();
+  await expect(page.locator('.toast')).toContainText('출력에 들리는 오디오가 없습니다');
+  await expect(page.locator('.processing-status')).toHaveCount(0);
   await page.getByRole('button', { name: '내보내기', exact: true }).click();
   await expect(page.getByLabel('파일 형식')).toBeEnabled();
   await page.getByLabel('파일 형식').selectOption('wav');
-  await expect(page.locator('.export-note').first()).toContainText('30분·1GiB');
+  await expect(page.locator('.export-note').first()).toContainText(
+    '고정 용량·시간 제한은 없습니다',
+  );
   await page.getByRole('dialog').getByRole('button', { name: '내보내기', exact: true }).click();
   await expect(page.getByText('내보내기가 완료됐습니다.')).toBeVisible({ timeout: 120000 });
   const waiting = page.waitForEvent('download');

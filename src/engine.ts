@@ -2,6 +2,7 @@ import EngineWorker from './engine.worker?worker';
 import type { Asset, Project } from './model';
 import type { Capabilities } from './codecs';
 import { workerFailure, PipelineFailure } from './failures';
+import { ProgressWatch } from './progress-watch';
 export type { Capabilities } from './codecs';
 export const files = new Map<string, File>();
 let requestId = 0;
@@ -51,19 +52,17 @@ export function request<T>(
         let worker: Worker | undefined;
         const rid = ++requestId;
         let settled = false;
-        const timer = setTimeout(
+        const timer = new ProgressWatch(
           () =>
             finish(
-              new Error(
-                '미디어 분석이 시간 제한을 초과했습니다. 더 짧은 파일이나 변환한 파일을 사용하세요.',
-              ),
+              new Error('미디어 분석 진행이 멈췄습니다. 다시 시도하거나 변환한 파일을 사용하세요.'),
             ),
           type === 'waveform' || type === 'audio-analysis' ? 120000 : 60000,
         );
         function finish(error?: Error, value?: T) {
           if (settled) return;
           settled = true;
-          clearTimeout(timer);
+          timer.stop();
           signal?.removeEventListener('abort', cancel);
           worker?.terminate();
           active--;
@@ -77,6 +76,10 @@ export function request<T>(
           worker = createEngine();
           worker.onmessage = (event) => {
             if (event.data.requestId !== rid) return;
+            if (event.data.type === 'progress') {
+              timer.advance(String(event.data.completed));
+              return;
+            }
             if (event.data.type === 'error') finish(workerFailure(event.data));
             else finish(undefined, event.data.asset ?? event.data.peaks ?? event.data.value);
           };

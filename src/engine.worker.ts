@@ -1,6 +1,5 @@
 import {
   Output,
-  BufferTarget,
   Mp4OutputFormat,
   WebMOutputFormat,
   WavOutputFormat,
@@ -15,7 +14,9 @@ import { probe, waveform, MediaPool, AudioMixer } from './media';
 import { Renderer } from './render';
 import { capabilities } from './codecs';
 import { failureEvent, PipelineFailure } from './failures';
-import { exportBudget, EXPORT_MAX_BYTES, EXPORT_LIMIT_LABEL } from './export-policy';
+import { exportBudget } from './export-policy';
+import { createExportOutput } from './export-output';
+import type { ExportDestination } from './export-files';
 import {
   duration,
   seconds,
@@ -58,7 +59,9 @@ scope.onmessage = (event) => {
     return;
   }
   if (data.type === 'waveform') {
-    void waveform(data.file, data.asset as Asset)
+    void waveform(data.file, data.asset as Asset, (completed) =>
+      scope.postMessage({ type: 'progress', requestId: data.requestId, completed }),
+    )
       .then((peaks) => scope.postMessage({ type: 'waveform', requestId: data.requestId, peaks }))
       .catch((e) =>
         scope.postMessage({
@@ -97,11 +100,11 @@ scope.onmessage = (event) => {
     return;
   }
   if (data.type === 'export')
-    void exportProject(data.project, data.format, data.bitrate, data.range).catch((e) =>
-      scope.postMessage({ type: 'error', ...failureEvent(e, 'export', data.project) }),
+    void exportProject(data.project, data.format, data.bitrate, data.range, data.destination).catch(
+      (e) => scope.postMessage({ type: 'error', ...failureEvent(e, 'export', data.project) }),
     );
 };
-async function extra(data: { type: string; project: Project; time: number }) {
+async function extra(data: { type: string; project: Project; time: number; requestId: number }) {
   const p = validateProject(data.project);
   const visual =
     data.type === 'capture'
@@ -114,8 +117,11 @@ async function extra(data: { type: string; project: Project; time: number }) {
       return await visual.canvas.convertToBlob({ type: 'image/png' });
     }
     const count = Math.ceil(seconds(duration(p)) * 48000);
-    if (count > 300 * 48000) throw new Error('음량 검사는 5분 이하 프로젝트를 지원합니다.');
-    for (let at = 0; at < count; at += 4096) await mixer!.block(at, Math.min(4096, count - at));
+    for (let at = 0; at < count; at += 4096) {
+      await mixer!.block(at, Math.min(4096, count - at));
+      if (at % (4096 * 16) === 0)
+        scope.postMessage({ type: 'progress', requestId: data.requestId, completed: at });
+    }
     return {
       peak: mixer!.peak,
       clippedSamples: mixer!.clippedSamples,
@@ -165,6 +171,7 @@ async function exportProject(
   format: 'mp4' | 'webm' | 'wav' | 'mp3',
   bitrate: number,
   range?: { start: number; end: number },
+  destination: ExportDestination = { id: crypto.randomUUID() },
 ) {
   const p = validateProject(raw);
   const from = range?.start ?? 0,
@@ -181,9 +188,7 @@ async function exportProject(
   if (length <= 0) throw new Error('내보낼 클립을 추가하세요.');
   const budget = exportBudget(format, length, p.fps, bitrate);
   if (!budget.allowed)
-    throw new Error(
-      `현재 설정의 출력 길이·${EXPORT_LIMIT_LABEL} 제한을 초과합니다. 범위나 비트레이트를 줄이세요.`,
-    );
+    throw new Error('출력 길이·FPS·비트레이트가 올바르지 않거나 정확히 계산할 수 없는 값입니다.');
   const caps = await capabilities(p, bitrate, format);
   if (!caps[format])
     throw new PipelineFailure(
@@ -194,32 +199,26 @@ async function exportProject(
   let output: Output | undefined;
   let visual: Renderer | undefined;
   let mixer: AudioMixer | undefined;
+  let sink: Awaited<ReturnType<typeof createExportOutput>> | undefined;
   try {
     scope.postMessage({ type: 'progress', stage: '폰트 · 원본 확인', progress: 0 });
     for (const key of requiredAssets(p, from, to, format === 'mp4' || format === 'webm'))
       if (!pool.files.has(key))
         throw new Error(`원본이 누락되었습니다: ${p.assets.find((a) => a.id === key)?.name}`);
-    const target = new BufferTarget();
+    sink = await createExportOutput(destination, format);
+    const target = sink.target;
     output = new Output({
       target,
       format:
         format === 'mp4'
-          ? new Mp4OutputFormat({ fastStart: 'in-memory' })
+          ? new Mp4OutputFormat({ fastStart: sink.streaming ? false : 'in-memory' })
           : format === 'webm'
             ? new WebMOutputFormat()
             : format === 'mp3'
               ? new Mp3OutputFormat()
-              : new WavOutputFormat(),
+              : new WavOutputFormat({ large: length * 48000 * 4 + 44 > 0xffffffff }),
     });
     let video: CanvasSource | undefined;
-    let encodedBytes = 0;
-    const countPacket = (packet: { byteLength: number }) => {
-      encodedBytes += packet.byteLength;
-    };
-    const checkSize = () => {
-      if (encodedBytes >= EXPORT_MAX_BYTES)
-        throw new Error('실제 출력이 1GiB를 초과했습니다. 범위나 비트레이트를 줄이세요.');
-    };
     if (format === 'mp4' || format === 'webm') {
       const codec: VideoCodec = format === 'mp4' ? 'avc' : caps.vp9 ? 'vp9' : 'vp8';
       const canvas = new OffscreenCanvas(p.width, p.height);
@@ -229,7 +228,6 @@ async function exportProject(
         codec,
         bitrate,
         keyFrameInterval: 2,
-        onEncodedPacket: countPacket,
       });
       output.addVideoTrack(video, { frameRate: p.fps });
     }
@@ -238,7 +236,6 @@ async function exportProject(
     const audio = new AudioSampleSource({
       codec: audioCodec,
       bitrate: 192000,
-      onEncodedPacket: countPacket,
     });
     output.addAudioTrack(audio);
     mixer = new AudioMixer(p, pool);
@@ -259,7 +256,6 @@ async function exportProject(
         });
         try {
           await audio.add(sample);
-          checkSize();
         } finally {
           sample.close();
         }
@@ -271,7 +267,6 @@ async function exportProject(
         const time = from + frameTick(frame, p.fps);
         await visual.render(p, time);
         await video.add(frame / p.fps, 1 / p.fps);
-        checkSize();
         const boundary = Math.min(sampleCount, Math.ceil(((frame + 1) / p.fps) * 48000));
         await encodeAudioUntil(boundary);
         if (frame % Math.max(1, Math.floor(p.fps / 4)) === 0)
@@ -298,20 +293,29 @@ async function exportProject(
     audio.close();
     scope.postMessage({ type: 'progress', stage: '컨테이너 마무리', progress: 1 });
     await output.finalize();
-    const buffer = target.buffer!;
-    if (buffer.byteLength >= EXPORT_MAX_BYTES)
-      throw new Error('실제 출력이 1GiB를 초과했습니다. 범위나 비트레이트를 줄이세요.');
+    const result = await sink.complete();
     scope.postMessage(
       {
         type: 'complete',
-        buffer,
+        ...result,
         format,
         audio: { peak: mixer.peak, clippedSamples: mixer.clippedSamples },
       },
-      [buffer],
+      result.buffer ? [result.buffer] : [],
     );
   } catch (e) {
-    await output?.cancel();
+    await output?.cancel().catch(() => {});
+    await sink?.abort().catch(() => {});
+    if (e instanceof DOMException && e.name === 'QuotaExceededError')
+      throw new PipelineFailure(
+        'STORAGE_FULL',
+        '실제 저장 공간이 부족해 출력을 중단했습니다. 공간을 확보하거나 파일로 직접 저장할 수 있는 브라우저에서 다시 시도하세요. 프로젝트는 유지됩니다.',
+      );
+    if (e instanceof RangeError)
+      throw new PipelineFailure(
+        'RESOURCE_LIMIT',
+        '이 기기의 메모리 또는 파일 처리 범위를 초과했습니다. 다른 브라우저에서 파일로 직접 저장하거나 구간을 나누어 다시 시도하세요. 프로젝트는 유지됩니다.',
+      );
     throw e;
   } finally {
     await mixer?.close();

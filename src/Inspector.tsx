@@ -16,7 +16,6 @@ import {
 import { Field } from './ui';
 import { changeSpeed } from './editing';
 import { ratios, ratioOf, setRatio } from './geometry';
-import { EXPORT_LIMIT_LABEL } from './export-policy';
 type Props = {
   project: Project;
   selected: string[];
@@ -607,8 +606,8 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
               <p>클립을 선택하면 자르기, 위치, 오디오 등의 설정을 편집할 수 있습니다.</p>
             </div>
             <p className="small-note">
-              4K와 사용자 폰트는 후속 지원 예정입니다. 현재 최대 한 변 1920px, 로컬 출력{' '}
-              {EXPORT_LIMIT_LABEL} 미만.
+              4K와 사용자 폰트는 후속 지원 예정입니다. 현재 최대 한 변 1920px. 파일 용량·프로젝트 및
+              출력 시간의 고정 상한은 없습니다.
             </p>
           </>
         )}

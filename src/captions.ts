@@ -10,7 +10,6 @@ function timestamp(value: string) {
   return tick(parts.map(Number).reduce((t, v) => t * 60 + v, 0));
 }
 export function parseCaptions(text: string): Cue[] {
-  if (text.length > 2 * 1024 * 1024) throw new Error('자막은 2MB 이하로 가져오세요.');
   const cues: Cue[] = [];
   for (const block of text
     .replace(/^\uFEFF/, '')
@@ -24,8 +23,8 @@ export function parseCaptions(text: string): Cue[] {
     if (!match) throw new Error('자막 시간 구분자를 확인하세요.');
     const start = timestamp(match[1]),
       end = timestamp(match[2]);
-    if (start < 0 || end <= start || end > tick(3600))
-      throw new Error('자막 구간은 0–60분 범위의 양수 길이여야 합니다.');
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end <= start)
+      throw new Error('자막 시작·끝은 정확히 표현 가능한 양수 길이여야 합니다.');
     const value = lines
       .slice(index + 1)
       .join('\n')
@@ -34,7 +33,6 @@ export function parseCaptions(text: string): Cue[] {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>');
     if (value) cues.push({ start, end, text: value });
-    if (cues.length > 10000) throw new Error('자막은 10,000개 이하로 가져오세요.');
   }
   if (!cues.length) throw new Error('SRT/VTT에서 읽을 수 있는 자막이 없습니다.');
   return cues.sort((a, b) => a.start - b.start);

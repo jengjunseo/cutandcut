@@ -1,0 +1,15 @@
+{
+  "bytes": 1082880044,
+  "duration": 5640,
+  "seek": 5639,
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+  "storage": {
+    "quota": 11820304204,
+    "usage": 1082885964,
+    "usageDetails": {
+      "fileSystem": 1082880222,
+      "indexedDB": 5742
+    }
+  },
+  "profile": "persistent-test-profile"
+}

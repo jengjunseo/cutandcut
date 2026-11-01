@@ -179,7 +179,7 @@ async function blobData(blob: Blob) {
   for (const b of bytes) binary += String.fromCharCode(b);
   return `data:${blob.type};base64,${btoa(binary)}`;
 }
-export async function waveform(file: File, asset: Asset) {
+export async function waveform(file: File, asset: Asset, progress?: (completed: number) => void) {
   const pool = new MediaPool();
   pool.register(asset.id, file);
   try {
@@ -187,8 +187,13 @@ export async function waveform(file: File, asset: Asset) {
     if (!r.audio) return [];
     const sink = new AudioSampleSink(r.audio);
     const peaks = new Array<number>(120).fill(0);
+    let reported = -Infinity;
     for await (const sample of sink.samples()) {
       try {
+        if (sample.timestamp - reported >= 5) {
+          reported = sample.timestamp;
+          progress?.(tick(reported));
+        }
         const data = new Float32Array(sample.numberOfFrames);
         sample.copyTo(data, { planeIndex: 0, format: 'f32-planar' });
         const bin = Math.max(

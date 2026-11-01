@@ -7,14 +7,22 @@ import {
   projectLimitError,
   validateProject,
 } from '../src/model';
-import { exportBudget, EXPORT_MAX_BYTES, EXPORT_MAX_SECONDS } from '../src/export-policy';
-import { MEDIA_MAX_STORED_BYTES, saveOriginal } from '../src/storage';
+import { exportBudget } from '../src/export-policy';
+import { saveOriginal } from '../src/storage';
 import { History } from '../src/history';
+import { parseCaptions } from '../src/captions';
 describe('consistent editing, persistence and export limits', () => {
-  it('skips oversized original persistence before opening IndexedDB', async () => {
-    await expect(saveOriginal('large', { size: MEDIA_MAX_STORED_BYTES + 1 } as File)).resolves.toBe(
-      false,
-    );
+  it('checks actual quota for originals over 2GiB instead of silently refusing them', async () => {
+    vi.stubGlobal('navigator', {
+      storage: { estimate: async () => ({ quota: 2 * 1024 ** 3, usage: 0 }) },
+    });
+    try {
+      await expect(saveOriginal('large', { size: 3 * 1024 ** 3 } as File)).rejects.toThrow(
+        '저장 공간',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
   it('rejects low quota before attempting the original transaction', async () => {
     vi.stubGlobal('navigator', {
@@ -26,7 +34,7 @@ describe('consistent editing, persistence and export limits', () => {
       vi.unstubAllGlobals();
     }
   });
-  it('accepts the same 60-minute boundary and explains overlong projects', () => {
+  it('accepts multi-day projects and only rejects imprecise integer times', () => {
     const p = emptyProject();
     p.clips = [
       {
@@ -36,7 +44,7 @@ describe('consistent editing, persistence and export limits', () => {
         kind: 'text',
         name: '긴 자막',
         start: 0,
-        duration: PROJECT_MAX_TIME,
+        duration: 48 * 3600 * 1e6,
         sourceIn: 0,
         text: {
           text: '끝',
@@ -51,24 +59,25 @@ describe('consistent editing, persistence and export limits', () => {
       },
     ];
     expect(projectLimitError(p)).toBeUndefined();
-    expect(validateProject(p).clips[0].duration).toBe(PROJECT_MAX_TIME);
-    p.clips[0].duration++;
-    expect(projectLimitError(p)).toContain('60분');
-    expect(() => validateProject(p)).toThrow('60분');
+    expect(validateProject(p).clips[0].duration).toBe(48 * 3600 * 1e6);
+    p.clips = Array.from({ length: 10001 }, (_, i) => ({ ...p.clips[0], id: `clip-${i}` }));
+    expect(validateProject(p).clips).toHaveLength(10001);
+    p.clips[0].start = PROJECT_MAX_TIME;
+    expect(projectLimitError(p)).toContain('정수');
+    expect(() => validateProject(p)).toThrow();
   });
-  it('uses video frame rounding, AAC bitrate and the same memory budget', () => {
+  it('estimates frame-rounded output without a fixed size or duration ceiling', () => {
     for (const bitrate of [3e6, 8e6, 16e6]) {
-      const b = exportBudget('mp4', EXPORT_MAX_SECONDS, 30, bitrate);
-      expect(exportBudget('mp4', b.maxSeconds, 30, bitrate).allowed).toBe(true);
-      expect(exportBudget('mp4', b.maxSeconds + 1 / 30, 30, bitrate).allowed).toBe(false);
-      expect(b.estimate).toBeGreaterThan((EXPORT_MAX_SECONDS * bitrate) / 8);
+      const b = exportBudget('mp4', 48 * 3600, 30, bitrate);
+      expect(b.allowed).toBe(true);
+      expect(b.estimate).toBeGreaterThan(1024 ** 3);
     }
-    expect(exportBudget('mp4', 300, 30, 8e6).maxSeconds).toBeCloseTo(1048.53, 1);
     expect(exportBudget('mp4', 300, 30, 16e6).allowed).toBe(true);
     expect(exportBudget('wav', 1800, 30, 30e6).allowed).toBe(true);
-    expect(exportBudget('wav', 1801, 30, 1e6).allowed).toBe(false);
-    expect(exportBudget('mp4', 1100, 30, 8e6).estimate).toBeGreaterThan(EXPORT_MAX_BYTES);
-    expect(MEDIA_MAX_STORED_BYTES).toBe(2 * EXPORT_MAX_BYTES);
+    expect(exportBudget('wav', 94 * 60, 30, 1e6).allowed).toBe(true);
+    expect(exportBudget('mp4', 1100, 30, 8e6).estimate).toBeGreaterThan(1024 ** 3);
+    for (const length of [NaN, Infinity, -1, 0, Number.MAX_VALUE])
+      expect(exportBudget('mp4', length, 30, 8e6).allowed).toBe(false);
   });
   it('history keeps semantic no-ops and resets without crossing projects', () => {
     const h = new History(),
@@ -82,5 +91,17 @@ describe('consistent editing, persistence and export limits', () => {
     const other = emptyProject();
     expect(h.undo(other)).toBe(other);
     expect(h.redo(other)).toBe(other);
+  });
+  it('parses subtitles beyond the former byte, cue-count and hour limits', () => {
+    const cues = parseCaptions(
+      Array.from(
+        { length: 10001 },
+        (_, i) =>
+          `${i + 1}\n02:00:00,000 --> 02:00:01,000\n${i === 0 ? '가'.repeat(800000) : '자막'}`,
+      ).join('\n\n'),
+    );
+    expect(cues).toHaveLength(10001);
+    expect(cues[0].start).toBe(7200e6);
+    expect(cues[0].text).toHaveLength(800000);
   });
 });

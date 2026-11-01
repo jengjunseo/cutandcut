@@ -1,13 +1,15 @@
 import { validSourceColorSpace, type SourceColorSpace } from './color';
 
 export const SECOND = 1_000_000;
-export const PROJECT_MAX_TIME = 3600 * SECOND;
+// Integer microsecond representability, not a product duration limit.
+export const PROJECT_MAX_TIME = Number.MAX_SAFE_INTEGER;
 export const PROJECT_MAX_DIMENSION = 1920;
 export function projectLimitError(p: Project): string | undefined {
-  if (p.clips.length > 10000 || p.assets.length > 1000)
-    return '프로젝트는 클립 10,000개·원본 1,000개까지 지원합니다.';
-  if (duration(p) > PROJECT_MAX_TIME || (p.workRange?.end ?? 0) > PROJECT_MAX_TIME)
-    return '프로젝트 타임라인은 60분까지입니다. 원본 구간이나 배치 위치를 줄이세요. 출력 제한은 별도로 적용됩니다.';
+  if (
+    p.clips.some((c) => !Number.isSafeInteger(c.start + c.duration)) ||
+    !Number.isSafeInteger(p.workRange?.end ?? 0)
+  )
+    return '시간 값을 정수 마이크로초로 정확히 표현할 수 없습니다.';
 }
 export const tick = (seconds: number) => Math.round(seconds * SECOND);
 export const seconds = (time: number) => time / SECOND;
@@ -125,7 +127,8 @@ export function emptyProject(): Project {
     clips: [],
   };
 }
-export const duration = (p: Project) => Math.max(0, ...p.clips.map((c) => c.start + c.duration));
+export const duration = (p: Project) =>
+  p.clips.reduce((end, c) => Math.max(end, c.start + c.duration), 0);
 export const clipDefaults = (): Pick<
   Clip,
   'x' | 'y' | 'scale' | 'rotation' | 'opacity' | 'fit' | 'volume' | 'fadeIn' | 'fadeOut'

@@ -181,9 +181,7 @@ test('quality: failed MP3/AAC modules leave real WAV and WebM export usable', as
     .poll(() => page.locator('.output-player').evaluate((v: HTMLVideoElement) => v.readyState))
     .toBeGreaterThanOrEqual(2);
 });
-test('quality: overlong real media and edits are rejected before corrupt persistence', async ({
-  page,
-}) => {
+test('quality: media and edits beyond one hour survive persistence', async ({ page }) => {
   await page.goto('/');
   const input = await page.evaluate(async () => {
     const url = '/tests/fixtures.browser.ts';
@@ -196,21 +194,31 @@ test('quality: overlong real media and edits are rejected before corrupt persist
     buffer: Buffer.from(input.bytes),
   });
   await expect(page.locator('.import-progress')).toHaveCount(0);
-  await expect(page.locator('.toast')).toContainText('60분');
-  await expect(page.locator('.asset-card')).toHaveCount(0);
+  await expect(page.locator('.asset-card')).toHaveCount(1);
+  await expect(page.locator('.timeline-clip.video')).toHaveCount(1);
   await page.getByRole('button', { name: '텍스트', exact: true }).click();
   await page.getByRole('button', { name: /제목 추가/ }).click();
   await page.getByRole('spinbutton', { name: '시작 (초)', exact: true }).fill('3600');
   await page.getByRole('spinbutton', { name: '시작 (초)', exact: true }).press('Enter');
-  await expect(page.getByRole('spinbutton', { name: '시작 (초)', exact: true })).toHaveValue('0');
+  await expect(page.getByRole('spinbutton', { name: '시작 (초)', exact: true })).toHaveValue(
+    '3600',
+  );
   await page.getByRole('spinbutton', { name: '길이 (초)', exact: true }).fill('600');
   await page.getByRole('spinbutton', { name: '길이 (초)', exact: true }).press('Enter');
   await expect(page.getByRole('spinbutton', { name: '길이 (초)', exact: true })).toHaveValue('600');
   await expect(page.locator('.save-state')).toContainText('기기에 자동 저장됨');
   await page.reload();
-  await expect(page.locator('.timeline-clip')).toHaveCount(1);
-  await page.locator('.timeline-clip').click();
-  await expect(page.getByRole('spinbutton', { name: '길이 (초)', exact: true })).toHaveValue('600');
+  await expect(page.locator('.asset-card')).toHaveCount(1);
+  await expect(page.locator('.save-state')).toContainText('기기에 자동 저장됨');
+  await page.getByRole('region', { name: '편집 타임라인', exact: true }).focus();
+  const waiting = page.waitForEvent('download');
+  await page.keyboard.press('Control+s');
+  const restored = JSON.parse(await fs.readFile((await (await waiting).path())!, 'utf8'));
+  expect(restored.clips).toHaveLength(2);
+  expect(restored.clips.find((c: { kind: string }) => c.kind === 'text')).toMatchObject({
+    start: 3600e6,
+    duration: 600e6,
+  });
 });
 test('quality: gap impact, caption output targets and export-only settings are explicit', async ({
   page,
@@ -274,9 +282,15 @@ test('quality: gap impact, caption output targets and export-only settings are e
   await page.getByRole('button', { name: '출력 설정 변경', exact: true }).click();
   await page.getByLabel('출력 화면 비율').selectOption('9:16');
   await expect(page.locator('.export-summary')).toContainText('1080 × 1920');
-  await expect(page.locator('.export-note').first()).toContainText('17분 28초');
+  const estimate = await page.locator('.export-note').first().textContent();
+  await expect(page.locator('.export-note').first()).toContainText(
+    '고정 용량·시간 제한은 없습니다',
+  );
   await page.getByRole('radio', { name: '높음', exact: true }).check();
-  await expect(page.locator('.export-note').first()).toContainText('8분 50초');
+  await expect(page.locator('.export-note').first()).not.toHaveText(estimate!);
+  await expect(page.locator('.export-note').first()).toContainText(
+    '고정 용량·시간 제한은 없습니다',
+  );
   await page.getByRole('button', { name: '돌아가기', exact: true }).click();
   await expect(page.locator('.preview-meta')).toContainText('1920 × 1080');
   await page.reload();

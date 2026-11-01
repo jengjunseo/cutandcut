@@ -45,7 +45,6 @@ import {
   setTransition,
   validateProject,
   projectLimitError,
-  PROJECT_MAX_TIME,
   type Clip,
   type Project,
   type Transition,
@@ -71,9 +70,7 @@ import {
   loadFile,
   download,
   forgetUnusedFiles,
-  MEDIA_MAX_STORED_BYTES,
 } from './storage';
-import { EXPORT_MAX_SECONDS } from './export-policy';
 import { sourceColorWarning } from './color';
 import { AudioPreview } from './audio-preview';
 import Preview from './Preview';
@@ -711,10 +708,6 @@ export default function App() {
         try {
           const asset = await inspect(file, abort.signal);
           if (!currentImport()) break;
-          if (asset.duration > PROJECT_MAX_TIME)
-            throw new Error(
-              `현재 원본 한 파일과 프로젝트 타임라인은 각각 60분까지 지원합니다. 60분 이하로 나누어 가져오세요. 출력은 현재 설정에 따라 최대 ${EXPORT_MAX_SECONDS / 60}분입니다.`,
-            );
           const p = projectRef.current;
           const missing = p.assets.find(
             (a) =>
@@ -959,7 +952,6 @@ export default function App() {
   async function openProject(file: File) {
     try {
       await switchProject(async () => {
-        if (file.size > 20 * 1024 * 1024) throw new Error('프로젝트 JSON은 20MB 이하여야 합니다.');
         return validateProject(JSON.parse(await file.text()));
       });
     } catch {
@@ -1595,7 +1587,7 @@ export default function App() {
                       가져온 원본도 기기에 저장
                     </label>
                     <p>
-                      파일당 {MEDIA_MAX_STORED_BYTES / 1024 ** 3}GiB 이하 · 저장소 여유에 따라 적용
+                      고정 파일 용량 제한 없음 · 실제 저장소 여유에 따라 보관
                       <br />
                       프로젝트 JSON에는 원본이 포함되지 않습니다.
                     </p>

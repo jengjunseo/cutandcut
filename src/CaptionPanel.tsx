@@ -46,10 +46,6 @@ export default function CaptionPanel({
         aria-label="자막 파일 선택"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file && file.size > 2 * 1024 * 1024) {
-            notify('자막 파일은 2MB 이하여야 합니다.');
-            return;
-          }
           const projectId = p.id;
           if (file)
             void file
@@ -159,7 +155,7 @@ function CaptionRow({
   function times() {
     const a = tick(Number(start)),
       b = tick(Number(end));
-    if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b) || a < 0 || b <= a || b > tick(3600)) {
+    if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b) || a < 0 || b <= a) {
       notify('자막 시작·끝 구간을 확인하세요.');
       setStart(seconds(c.start).toFixed(3));
       setEnd(seconds(c.start + c.duration).toFixed(3));
