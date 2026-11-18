@@ -18,6 +18,12 @@ Windows Chrome **157**, Ryzen 3 4100/약 16.96GB RAM에서 단위 **90개**, str
 
 건너뛴 6개는 운영 전용 2개(배포 후 별도 실행), 외부 실제 촬영본 성능 opt-in 3개, 94분/1GiB 초과 PCM opt-in 1개다. 마지막 용량 검사는 이전 패스의 실검증이며 이번 코드에서 다시 실행했다고 주장하지 않는다. Galaxy/iPad/Safari·실제 Android IME/키보드·HDR·긴 복잡한 촬영본의 최대 메모리는 미검증이다. B1–B4 합성 출력의 전후 반복 성능은 [개발 보고서](DEVELOPMENT_DIRECTIVE_2026_11_18.md)와 [원자료](results/directive-benchmark.json)를 참조한다.
 
+### 실사용 개선 운영 배포 · 2026-11-19
+
+코드 커밋 `10157793a0a4ef2917398a65f370fa6ba23bf81e`은 기존 Vercel `cutandcut` 프로젝트의 production/Ready로 반영됐다. 배포 ID `dpl_6PmagqGESPYrEmT9crmC6aDdr23N`, [고정 배포](https://cutandcut-h1vc6115g-wondaes-projects-fe5c826b.vercel.app), [공개 사이트](https://cutandcut.vercel.app). [Quality CI](https://github.com/jengjunseo/cutandcut/actions/runs/44334027225)의 설치·단위·strict/unused 타입·빌드·번들 예산이 모두 성공했다. 공개 main `index-gdWLIjZ5.js`와 Worker `engine.worker-CDY2OGYw.js`의 SHA-256은 검증한 로컬 배포 빌드와 일치했다. [배포/해시](results/directive-deployment.json).
+
+운영 전용 **2개 모두 통과**했다(1.9분). 실제 MP4/PNG/WAV·한글 합성 뒤 가로/세로 AVC/AAC MP4, VP9/Opus WebM, PCM WAV, MP3를 다운로드하고 실제 재생·음성 에너지를 확인했다. 이전 프로젝트 JSON·누락 원본 재연결·푸른 여백→검정·1080×1920 MP4·모바일 모드/재열기에서 세 시점 색상/프레임·길이가 일치했고 페이지 예외는 없었다. [운영 출력](results/directive-production-formats.json) · [운영 색상/복구](results/directive-production-color.json). Galaxy 실물의 검사로 확대하지 않는다. 이 절의 후속 문서 기록은 앱 코드를 바꾸지 않는다.
+
 ## 고정 용량·시간 상한 제거 · 2026-11-01
 
 기존 UX/UI 배치를 유지하며 출력 1GiB/30분, 원본·프로젝트 60분, 원본 보관 2GiB, JSON 20MB, 자막 2MB/10,000개/1시간, 전체 믹스 검사 5분 상한을 제거했다. 유효한 정수 시간, 실제 코덱·최대 한 변 1920px, 제한된 프레임/PCM 캐시와 정지 감지는 유지한다. 경로·수명·남은 실제 자원 제약은 [UNBOUNDED_CAPACITY.md](UNBOUNDED_CAPACITY.md)에 있다.

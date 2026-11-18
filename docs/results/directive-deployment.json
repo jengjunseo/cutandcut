@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-19 (Asia/Seoul)",
+  "codeCommit": "10157793a0a4ef2917398a65f370fa6ba23bf81e",
+  "deploymentId": "dpl_6PmagqGESPYrEmT9crmC6aDdr23N",
+  "state": "READY",
+  "target": "production",
+  "url": "https://cutandcut.vercel.app",
+  "immutableUrl": "https://cutandcut-h1vc6115g-wondaes-projects-fe5c826b.vercel.app",
+  "qualityCI": "https://github.com/jengjunseo/cutandcut/actions/runs/44334027225",
+  "qualityConclusion": "success",
+  "productionTestsPassed": 2,
+  "productionTestMinutes": 1.9,
+  "assets": [
+    {"path":"/assets/index-gdWLIjZ5.js","sha256":"E9D826FFE6AED8C11EED240C493E59F0972A5124B42A3EB6D6FA664B2CF82F38","matchesLocalBuild":true},
+    {"path":"/assets/engine.worker-CDY2OGYw.js","sha256":"51B3167081188D7733422131AED3DBCEF4B1D9C76868E07E9EB697CF7361F895","matchesLocalBuild":true}
+  ],
+  "scope": "Desktop Windows Chrome automation, including emulated phone UI. No physical Galaxy/iPad/Safari claim. Follow-up documentation commits keep the same app assets."
+}
