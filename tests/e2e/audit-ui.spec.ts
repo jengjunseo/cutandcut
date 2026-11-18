@@ -1,3 +1,4 @@
+import { viewOptions, precisionOptions, pixelsPerSecond } from './workspace-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 async function saved(page: Page) {
@@ -24,14 +25,18 @@ test('crop handles, flip, quality, marquee, locking, solo, normalization and sto
     })),
   );
   await expect(page.locator('.import-progress')).toHaveCount(0);
+  await page.getByRole('button', { name: '선택 모드', exact: true }).click();
+  await page.getByRole('button', { name: '미디어 전체 선택', exact: true }).click();
   await page
     .getByRole('button', { name: '선택한 미디어 추가 · 영상은 연속 배치', exact: true })
     .click();
   await page.getByLabel('프로젝트 이름').fill('감사 원본');
   await page.getByLabel('프로젝트 이름').press('Enter');
   await page.locator('.timeline-clip.image').click();
+  await viewOptions(page);
   await page.getByRole('button', { name: '안전 영역', exact: true }).click();
   await expect(page.getByLabel('10% 자막 안전 영역')).toBeVisible();
+  await viewOptions(page);
   await page.getByRole('button', { name: '크롭 핸들', exact: true }).click();
   const handle = (await page
     .getByRole('button', { name: '왼쪽 위 크롭 핸들', exact: true })
@@ -54,6 +59,7 @@ test('crop handles, flip, quality, marquee, locking, solo, normalization and sto
     'aria-pressed',
     'true',
   );
+  await viewOptions(page);
   await page.getByLabel('미리보기 품질').selectOption('0.25');
   await expect
     .poll(() => page.getByLabel('프로젝트 합성 영상').evaluate((c: HTMLCanvasElement) => c.width))
@@ -91,16 +97,18 @@ test('crop handles, flip, quality, marquee, locking, solo, normalization and sto
   await lanes.first().scrollIntoViewIfNeeded();
   const top = (await lanes.first().boundingBox())!,
     second = (await lanes.nth(1).boundingBox())!,
-    zoom = Number(await page.getByLabel('타임라인 확대', { exact: true }).inputValue());
+    zoom = await pixelsPerSecond(page);
   await page.mouse.move(top.x + 5.5 * zoom, top.y + 50);
   await page.mouse.down();
   await page.mouse.move(top.x + 20, second.y + second.height - 5, { steps: 12 });
   await page.mouse.up();
   await expect(page.locator('.clip-selected')).toHaveCount(3);
+  await precisionOptions(page);
   await page.getByRole('button', { name: '선택 클립 그룹화', exact: true }).click();
   expect(new Set((await saved(page)).clips.map((c: { groupId: string }) => c.groupId)).size).toBe(
     1,
   );
+  await viewOptions(page);
   const pngWait = page.waitForEvent('download');
   await page.getByRole('button', { name: '정지 프레임', exact: true }).click();
   await (await pngWait).saveAs('artifacts/audit-freeze.png');
@@ -191,12 +199,16 @@ test('touch track controls have at least 44px hit areas and readable notices', a
   try {
     await page.goto('http://localhost:5174');
     await expect(page.locator('.output-support')).toContainText('MP4');
-    const controls = await page.locator('.track-controls .icon-button').evaluateAll((nodes) =>
-      nodes.map((n) => ({
-        width: n.getBoundingClientRect().width,
-        height: n.getBoundingClientRect().height,
-      })),
-    );
+    const controls = await page
+      .locator('.mobile-track-button')
+      .filter({ visible: true })
+      .evaluateAll((nodes) =>
+        nodes.map((n) => ({
+          width: n.getBoundingClientRect().width,
+          height: n.getBoundingClientRect().height,
+        })),
+      );
+    expect(controls.length).toBeGreaterThan(0);
     for (const box of controls) {
       expect(box.width).toBeGreaterThanOrEqual(44);
       expect(box.height).toBeGreaterThanOrEqual(44);

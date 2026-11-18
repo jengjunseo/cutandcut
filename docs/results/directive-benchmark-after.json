@@ -1,0 +1,586 @@
+{
+  "phase": "after",
+  "scope": "Synthetic SDR moving blocks and tone. B2 uses four legacy transition boundaries for identical before/after comparison; not real game/camera footage.",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+  "cpu": "AMD Ryzen 3 4100 4-Core Processor              ",
+  "memoryBytes": 16957935616,
+  "memoryMeasurement": "No cross-process peak memory metric; not fabricated.",
+  "records": [
+    {
+      "scenario": "B1",
+      "run": 0,
+      "cold": true,
+      "bytes": 2419387,
+      "metrics": {
+        "wallMs": 15416.5,
+        "stagesMs": {
+          "destination": 13.700000002980232,
+          "demux/resource": 19.39999996870756,
+          "video decode": 607.8000000342727,
+          "prepare/fonts": 58.899999998509884,
+          "render including decode": 734.6000000275671,
+          "video encode/backpressure": 14322.699999999255,
+          "audio decode/mix": 958.7000000402331,
+          "audio encode": 226.20000003278255,
+          "mux/finalize": 94.19999999925494,
+          "save": 7.600000001490116
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 1801,
+          "video decode": 1801,
+          "prepare/fonts": 1,
+          "render including decode": 1800,
+          "video encode/backpressure": 1800,
+          "audio decode/mix": 1800,
+          "audio encode": 1800,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 1800
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B1",
+      "run": 1,
+      "cold": false,
+      "bytes": 2419387,
+      "metrics": {
+        "wallMs": 15405.800000000745,
+        "stagesMs": {
+          "destination": 2.900000002235174,
+          "demux/resource": 15.499999985098839,
+          "video decode": 708.9000000655651,
+          "prepare/fonts": 187.5,
+          "render including decode": 705.6999999955297,
+          "video encode/backpressure": 14327.899999994785,
+          "audio decode/mix": 897.1000000350177,
+          "audio encode": 219.10000005364418,
+          "mux/finalize": 92.59999999776483,
+          "save": 7.800000000745058
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 1801,
+          "video decode": 1801,
+          "prepare/fonts": 1,
+          "render including decode": 1800,
+          "video encode/backpressure": 1800,
+          "audio decode/mix": 1800,
+          "audio encode": 1800,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 1800
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B1",
+      "run": 2,
+      "cold": false,
+      "bytes": 2419387,
+      "metrics": {
+        "wallMs": 15388,
+        "stagesMs": {
+          "destination": 3,
+          "demux/resource": 15.799999937415123,
+          "video decode": 692.6000001356006,
+          "prepare/fonts": 180.20000000298023,
+          "render including decode": 687.2999999411404,
+          "video encode/backpressure": 14337.600000038743,
+          "audio decode/mix": 880.1999998763204,
+          "audio encode": 213.30000014603138,
+          "mux/finalize": 100.09999999776483,
+          "save": 4.199999999254942
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 1801,
+          "video decode": 1801,
+          "prepare/fonts": 1,
+          "render including decode": 1800,
+          "video encode/backpressure": 1800,
+          "audio decode/mix": 1800,
+          "audio encode": 1800,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 1800
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B1",
+      "run": 3,
+      "cold": false,
+      "bytes": 2419387,
+      "metrics": {
+        "wallMs": 15399.199999999255,
+        "stagesMs": {
+          "destination": 1.5,
+          "demux/resource": 20.399999991059303,
+          "video decode": 739.1999999471009,
+          "prepare/fonts": 184.69999999925494,
+          "render including decode": 736.2999999783933,
+          "video encode/backpressure": 14295.700000036508,
+          "audio decode/mix": 967.400000013411,
+          "audio encode": 238.90000005811453,
+          "mux/finalize": 99,
+          "save": 3.899999998509884
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 1801,
+          "video decode": 1801,
+          "prepare/fonts": 1,
+          "render including decode": 1800,
+          "video encode/backpressure": 1800,
+          "audio decode/mix": 1800,
+          "audio encode": 1800,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 1800
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B2",
+      "run": 0,
+      "cold": true,
+      "bytes": 4962464,
+      "metrics": {
+        "wallMs": 15614.800000000745,
+        "stagesMs": {
+          "destination": 1.9000000022351742,
+          "demux/resource": 21.700000010430813,
+          "video decode": 804.0000000074506,
+          "prepare/fonts": 199.10000000149012,
+          "render including decode": 1076.4999999925494,
+          "video encode/backpressure": 14140.300000041723,
+          "audio decode/mix": 1700.3999999985099,
+          "audio encode": 218.7000000923872,
+          "mux/finalize": 95.5,
+          "save": 8.5
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 2414,
+          "video decode": 1813,
+          "prepare/fonts": 1,
+          "render including decode": 1800,
+          "video encode/backpressure": 1800,
+          "audio decode/mix": 1800,
+          "audio encode": 1800,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 1800
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B2",
+      "run": 1,
+      "cold": false,
+      "bytes": 4962464,
+      "metrics": {
+        "wallMs": 15629.699999999255,
+        "stagesMs": {
+          "destination": 1.9000000022351742,
+          "demux/resource": 19.49999998882413,
+          "video decode": 830.2999999187887,
+          "prepare/fonts": 195.19999999925494,
+          "render including decode": 1064.3000000193715,
+          "video encode/backpressure": 14160.599999986589,
+          "audio decode/mix": 1689.0000001043081,
+          "audio encode": 222.49999995157123,
+          "mux/finalize": 97.39999999850988,
+          "save": 11.699999999254942
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 2414,
+          "video decode": 1813,
+          "prepare/fonts": 1,
+          "render including decode": 1800,
+          "video encode/backpressure": 1800,
+          "audio decode/mix": 1800,
+          "audio encode": 1800,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 1800
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B2",
+      "run": 2,
+      "cold": false,
+      "bytes": 4962464,
+      "metrics": {
+        "wallMs": 15642.199999999255,
+        "stagesMs": {
+          "destination": 2.5,
+          "demux/resource": 22.099999997764826,
+          "video decode": 842.800000090152,
+          "prepare/fonts": 201.30000000074506,
+          "render including decode": 1066.1000000461936,
+          "video encode/backpressure": 14169.79999994114,
+          "audio decode/mix": 1691.300000037998,
+          "audio encode": 218.29999995604157,
+          "mux/finalize": 100.30000000074506,
+          "save": 5.699999999254942
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 2414,
+          "video decode": 1813,
+          "prepare/fonts": 1,
+          "render including decode": 1800,
+          "video encode/backpressure": 1800,
+          "audio decode/mix": 1800,
+          "audio encode": 1800,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 1800
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B2",
+      "run": 3,
+      "cold": false,
+      "bytes": 4962464,
+      "metrics": {
+        "wallMs": 15640.400000002235,
+        "stagesMs": {
+          "destination": 2.300000000745058,
+          "demux/resource": 22.499999977648258,
+          "video decode": 850.1999998986721,
+          "prepare/fonts": 199.39999999850988,
+          "render including decode": 1088.200000014156,
+          "video encode/backpressure": 14157.59999993816,
+          "audio decode/mix": 1790.8000000752509,
+          "audio encode": 225.29999995976686,
+          "mux/finalize": 93.90000000223517,
+          "save": 8.199999999254942
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 2414,
+          "video decode": 1813,
+          "prepare/fonts": 1,
+          "render including decode": 1800,
+          "video encode/backpressure": 1800,
+          "audio decode/mix": 1800,
+          "audio encode": 1800,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 1800
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B3",
+      "run": 0,
+      "cold": true,
+      "bytes": 23658631,
+      "metrics": {
+        "wallMs": 74913,
+        "stagesMs": {
+          "destination": 1.5,
+          "demux/resource": 60.69999994337559,
+          "video decode": 2822.8999999314547,
+          "prepare/fonts": 294.0999999977648,
+          "render including decode": 4524.29999968037,
+          "video encode/backpressure": 69708.90000035614,
+          "audio decode/mix": 4947.499999992549,
+          "audio encode": 1066.3999999314547,
+          "mux/finalize": 107.40000000223517,
+          "save": 19.599999997764826
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 9001,
+          "video decode": 9001,
+          "prepare/fonts": 1,
+          "render including decode": 9000,
+          "video encode/backpressure": 9000,
+          "audio decode/mix": 9000,
+          "audio encode": 9000,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 9000
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B3",
+      "run": 1,
+      "cold": false,
+      "bytes": 23658631,
+      "metrics": {
+        "wallMs": 74957.30000000075,
+        "stagesMs": {
+          "destination": 1.699999999254942,
+          "demux/resource": 66.10000004991889,
+          "video decode": 2800.60000012815,
+          "prepare/fonts": 285.69999999925494,
+          "render including decode": 4430.499999828637,
+          "video encode/backpressure": 69845.40000019968,
+          "audio decode/mix": 4521.200000014156,
+          "audio encode": 1053.3999998159707,
+          "mux/finalize": 101.5,
+          "save": 20.300000000745058
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 9001,
+          "video decode": 9001,
+          "prepare/fonts": 1,
+          "render including decode": 9000,
+          "video encode/backpressure": 9000,
+          "audio decode/mix": 9000,
+          "audio encode": 9000,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 9000
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B3",
+      "run": 2,
+      "cold": false,
+      "bytes": 23658631,
+      "metrics": {
+        "wallMs": 74836.19999999925,
+        "stagesMs": {
+          "destination": 1.5,
+          "demux/resource": 53.400000013411045,
+          "video decode": 2772.200000207871,
+          "prepare/fonts": 265.0999999977648,
+          "render including decode": 4387.000000353903,
+          "video encode/backpressure": 69805.79999970272,
+          "audio decode/mix": 4481.300000008196,
+          "audio encode": 1044.299999985844,
+          "mux/finalize": 95.20000000298023,
+          "save": 17.800000000745058
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 9001,
+          "video decode": 9001,
+          "prepare/fonts": 1,
+          "render including decode": 9000,
+          "video encode/backpressure": 9000,
+          "audio decode/mix": 9000,
+          "audio encode": 9000,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 9000
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B3",
+      "run": 3,
+      "cold": false,
+      "bytes": 23658631,
+      "metrics": {
+        "wallMs": 74925.09999999776,
+        "stagesMs": {
+          "destination": 1.199999999254942,
+          "demux/resource": 64.0000000409782,
+          "video decode": 2769.600000012666,
+          "prepare/fonts": 292.8999999985099,
+          "render including decode": 4415.1999999806285,
+          "video encode/backpressure": 69829.70000005513,
+          "audio decode/mix": 4508.099999971688,
+          "audio encode": 1057.5000000149012,
+          "mux/finalize": 97.90000000223517,
+          "save": 19.899999998509884
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 9001,
+          "video decode": 9001,
+          "prepare/fonts": 1,
+          "render including decode": 9000,
+          "video encode/backpressure": 9000,
+          "audio decode/mix": 9000,
+          "audio encode": 9000,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 9000
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B4",
+      "run": 0,
+      "cold": true,
+      "bytes": 3403708,
+      "metrics": {
+        "wallMs": 30423.5,
+        "stagesMs": {
+          "destination": 1.3999999985098839,
+          "demux/resource": 29.99999999627471,
+          "video decode": 1113.400000039488,
+          "prepare/fonts": 137.39999999850988,
+          "render including decode": 1327.9999998398125,
+          "video encode/backpressure": 28577.20000011474,
+          "audio decode/mix": 951.8000000789762,
+          "audio encode": 345.8999999128282,
+          "mux/finalize": 96.30000000074506,
+          "save": 7.800000000745058
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 3601,
+          "video decode": 3601,
+          "prepare/fonts": 1,
+          "render including decode": 3600,
+          "video encode/backpressure": 3600,
+          "audio decode/mix": 3600,
+          "audio encode": 3600,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 3600
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B4",
+      "run": 1,
+      "cold": false,
+      "bytes": 3403708,
+      "metrics": {
+        "wallMs": 30354.20000000298,
+        "stagesMs": {
+          "destination": 2.399999998509884,
+          "demux/resource": 34.29999998956919,
+          "video decode": 1274.6000000312924,
+          "prepare/fonts": 255.30000000074506,
+          "render including decode": 1386.3999998494983,
+          "video encode/backpressure": 28505.700000189245,
+          "audio decode/mix": 943.300000153482,
+          "audio encode": 366.69999985024333,
+          "mux/finalize": 97.70000000298023,
+          "save": 4.400000002235174
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 3601,
+          "video decode": 3601,
+          "prepare/fonts": 1,
+          "render including decode": 3600,
+          "video encode/backpressure": 3600,
+          "audio decode/mix": 3600,
+          "audio encode": 3600,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 3600
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B4",
+      "run": 2,
+      "cold": false,
+      "bytes": 3403708,
+      "metrics": {
+        "wallMs": 30330.39999999851,
+        "stagesMs": {
+          "destination": 2.399999998509884,
+          "demux/resource": 31.30000003054738,
+          "video decode": 1251.5999998934567,
+          "prepare/fonts": 263.69999999925494,
+          "render including decode": 1341.3999999426305,
+          "video encode/backpressure": 28504.80000004545,
+          "audio decode/mix": 955.9000001400709,
+          "audio encode": 348.2999997921288,
+          "mux/finalize": 94.10000000149012,
+          "save": 7.899999998509884
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 3601,
+          "video decode": 3601,
+          "prepare/fonts": 1,
+          "render including decode": 3600,
+          "video encode/backpressure": 3600,
+          "audio decode/mix": 3600,
+          "audio encode": 3600,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 3600
+      },
+      "revision": 0
+    },
+    {
+      "scenario": "B4",
+      "run": 3,
+      "cold": false,
+      "bytes": 3403708,
+      "metrics": {
+        "wallMs": 35947.60000000149,
+        "stagesMs": {
+          "destination": 2.5,
+          "demux/resource": 33.19999999552965,
+          "video decode": 1253.8999999910593,
+          "prepare/fonts": 249.80000000074506,
+          "render including decode": 1366.699999988079,
+          "video encode/backpressure": 34090.49999998137,
+          "audio decode/mix": 995.2000002004206,
+          "audio encode": 348.2999999038875,
+          "mux/finalize": 130.19999999925494,
+          "save": 7.599999997764826
+        },
+        "calls": {
+          "destination": 1,
+          "demux/resource": 3601,
+          "video decode": 3601,
+          "prepare/fonts": 1,
+          "render including decode": 3600,
+          "video encode/backpressure": 3600,
+          "audio decode/mix": 3600,
+          "audio encode": 3600,
+          "mux/finalize": 1,
+          "save": 1
+        },
+        "peakVideoQueue": 4,
+        "encodedVideoPackets": 3600
+      },
+      "revision": 0
+    }
+  ]
+}

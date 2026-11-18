@@ -1,5 +1,5 @@
 import { Settings2, Link2, Unlink, SlidersHorizontal, Type, ChevronDown } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   seconds,
   tick,
@@ -16,14 +16,27 @@ import {
 import { Field } from './ui';
 import { changeSpeed } from './editing';
 import { ratios, ratioOf, setRatio } from './geometry';
+import LiveTextInput from './LiveTextInput';
+import TextStyleTools from './TextStyleTools';
+import { fontCatalog } from './fonts';
 type Props = {
   project: Project;
   selected: string[];
   commit: (p: Project) => void;
   notify: (s: string) => void;
   onSelect: (ids: string[]) => void;
+  editText: (id: string, value: string, projectId?: string) => void;
+  finishText: () => void;
 };
-export default function Inspector({ project: p, selected, commit, notify, onSelect }: Props) {
+export default function Inspector({
+  project: p,
+  selected,
+  commit,
+  notify,
+  onSelect,
+  editText,
+  finishText,
+}: Props) {
   const c = p.clips.find((c) => selected.includes(c.id));
   const locked = c && !editable(p, linked(p, [c.id]));
   const [section, setSection] = useState('transform');
@@ -169,12 +182,50 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                   <h3>
                     <Type size={14} /> 텍스트
                   </h3>
-                  <TextInput key={c.id} value={c.text.text} onCommit={(v) => text({ text: v })} />
+                  <LiveTextInput
+                    key={c.id}
+                    value={c.text.text}
+                    edit={(v) => editText(c.id, v, p.id)}
+                    finish={finishText}
+                  />
                   <Field label="글꼴">
-                    <select value="noto" onChange={() => {}}>
-                      <option value="noto">Noto Sans KR · 기본 제공</option>
+                    <select
+                      value={c.text.fontId ?? 'noto'}
+                      onChange={(e) =>
+                        text({ fontId: e.target.value as NonNullable<Clip['text']>['fontId'] })
+                      }
+                    >
+                      {fontCatalog.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.label} · 기본 제공
+                        </option>
+                      ))}
                     </select>
                   </Field>
+                  <TextStyleTools
+                    style={c.text}
+                    canvasWidth={p.width}
+                    patch={text}
+                    notify={notify}
+                    place={(anchor, margin) => {
+                      const [y, x] = anchor.split('-');
+                      patch({
+                        x:
+                          x === 'left'
+                            ? margin / p.width
+                            : x === 'right'
+                              ? 1 - margin / p.width
+                              : 0.5,
+                        y:
+                          y === 'top'
+                            ? margin / p.height
+                            : y === 'bottom'
+                              ? 1 - margin / p.height
+                              : 0.5,
+                        text: { ...c.text!, anchor },
+                      });
+                    }}
+                  />
                   <div className="two-fields">
                     <Field label="크기 (px)">
                       <NumberInput
@@ -437,8 +488,15 @@ export default function Inspector({ project: p, selected, commit, notify, onSele
                       ? '크로스 디졸브'
                       : c.transition.kind === 'black'
                         ? '검정으로 페이드'
-                        : '흰색으로 페이드'}{' '}
+                        : c.transition.kind === 'slide'
+                          ? '슬라이드'
+                          : c.transition.kind === 'wipe'
+                            ? '와이프'
+                            : '흰색으로 페이드'}{' '}
                     · {seconds(c.transition.duration).toFixed(2)}초
+                    {c.transition.version === 2
+                      ? ` · 총 ${c.transition.frames}프레임 · 가운데 정렬`
+                      : ' · 이전 효과 의미 유지'}
                   </p>
                   <button
                     className="secondary full"
@@ -647,43 +705,6 @@ export function NumberInput({
       onBlur={apply}
       onKeyDown={(e) => {
         if (e.key === 'Enter') e.currentTarget.blur();
-      }}
-    />
-  );
-}
-export function TextInput({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
-  const [draft, setDraft] = useState(value),
-    composing = useRef(false),
-    baseline = useRef(value);
-  useEffect(() => {
-    if (value !== baseline.current && !composing.current) {
-      setDraft(value);
-      baseline.current = value;
-    }
-  }, [value]);
-  function apply() {
-    if (!composing.current && draft !== baseline.current) {
-      onCommit(draft);
-      baseline.current = draft;
-    }
-  }
-  return (
-    <textarea
-      className="text-content"
-      aria-label="텍스트 내용"
-      value={draft}
-      rows={4}
-      onChange={(e) => setDraft(e.target.value)}
-      onCompositionStart={() => {
-        composing.current = true;
-      }}
-      onCompositionEnd={() => {
-        composing.current = false;
-      }}
-      onBlur={apply}
-      onKeyDown={(e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !composing.current)
-          e.currentTarget.blur();
       }}
     />
   );

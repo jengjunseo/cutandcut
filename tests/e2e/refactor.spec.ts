@@ -1,3 +1,4 @@
+import { libraryOptions, pixelsPerSecond, viewOptions } from './workspace-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 
@@ -8,6 +9,7 @@ async function importVideo(page: Page) {
       .makeFixtures()
       .then((rows: { name: string; mimeType: string; bytes: number[] }[]) => rows[0]);
   });
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: sample.name,
@@ -118,6 +120,7 @@ test('refactor: linked locks cover preview transforms and solo-aware export pref
   await expect(page.getByRole('button', { name: '클립 크기 조절 핸들', exact: true })).toHaveCount(
     0,
   );
+  await viewOptions(page);
   await expect(page.getByRole('button', { name: '크롭 핸들', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: '텍스트 · 이미지 단독 재생', exact: true }).click();
   await page.getByRole('button', { name: '내보내기', exact: true }).click();
@@ -189,7 +192,7 @@ test('refactor: quick drag commits its final pointer position in one undo step',
   await page.getByRole('button', { name: /제목 추가/ }).click();
   const clip = page.locator('.timeline-clip.text'),
     box = (await clip.boundingBox())!;
-  const zoom = Number(await page.getByLabel('타임라인 확대', { exact: true }).inputValue());
+  const zoom = await pixelsPerSecond(page);
   await page.mouse.move(box.x + 50, box.y + 20);
   await page.mouse.down();
   await clip.evaluate(

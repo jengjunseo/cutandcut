@@ -1,5 +1,6 @@
 import { audioGain, activeTracks, seconds, type Project } from './model';
 import { files } from './engine';
+import { audioEnvelope, envelopeGain } from './transitions';
 type Playing = {
   element: HTMLAudioElement;
   gain: GainNode;
@@ -22,11 +23,14 @@ export class AudioPreview {
   sync(p: Project, time: number, playing: boolean, rate: number) {
     if (!this.context) return;
     const audible = activeTracks(p, 'audio');
+    const envelopes = new Map(
+      p.clips.filter((c) => c.kind === 'audio').map((c) => [c.id, audioEnvelope(p, c)]),
+    );
     const active = p.clips.filter(
       (c) =>
         c.kind === 'audio' &&
-        time >= c.start &&
-        time < c.start + c.duration &&
+        time >= envelopes.get(c.id)!.start &&
+        time < envelopes.get(c.id)!.end &&
         audible.has(c.trackId) &&
         playing &&
         rate > 0,
@@ -61,7 +65,7 @@ export class AudioPreview {
       a.element.playbackRate = Math.min(16, rate * (c.speed ?? 1));
       a.element.preservesPitch = c.preservePitch !== false;
       a.gain.gain.setTargetAtTime(
-        audioGain(c, time) * (p.masterVolume ?? 1),
+        audioGain(c, time) * envelopeGain(envelopes.get(c.id)!, time) * (p.masterVolume ?? 1),
         this.context.currentTime,
         0.015,
       );

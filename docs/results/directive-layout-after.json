@@ -1,0 +1,95 @@
+{
+  "inputState": {
+    "input": "아베무지카 오늘도 라이브",
+    "label": "아베무지카 오늘도 라이브\n아베무지카 오늘도 라이브",
+    "save": "기기에 자동 저장됨"
+  },
+  "records": [
+    {
+      "width": 1440,
+      "height": 900,
+      "preview": {
+        "width": 718.21875,
+        "height": 404
+      },
+      "visibleTracks": 3,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        47
+      ]
+    },
+    {
+      "width": 1363,
+      "height": 936,
+      "preview": {
+        "width": 779,
+        "height": 438.1875
+      },
+      "visibleTracks": 3,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        47
+      ]
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "preview": {
+        "width": 398.21875,
+        "height": 224
+      },
+      "visibleTracks": 3,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        47
+      ]
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "preview": {
+        "width": 444.4375,
+        "height": 250
+      },
+      "visibleTracks": 3,
+      "overflow": false,
+      "toolbarHeights": []
+    },
+    {
+      "width": 768,
+      "height": 1024,
+      "preview": {
+        "width": 744,
+        "height": 418.5
+      },
+      "visibleTracks": 3,
+      "overflow": false,
+      "toolbarHeights": []
+    },
+    {
+      "width": 640,
+      "height": 800,
+      "preview": {
+        "width": 417.765625,
+        "height": 235
+      },
+      "visibleTracks": 3,
+      "overflow": false,
+      "toolbarHeights": []
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "preview": {
+        "width": 366,
+        "height": 205.875
+      },
+      "visibleTracks": 3,
+      "overflow": false,
+      "toolbarHeights": []
+    }
+  ]
+}

@@ -1,4 +1,14 @@
-import { PROJECT_MAX_DIMENSION, type Project } from './model';
+import { PROJECT_MAX_DIMENSION, frameTick, type Project } from './model';
+export function timelinePosition(
+  x: number,
+  left: number,
+  scroll: number,
+  header: number,
+  scale: number,
+  fps: number,
+) {
+  return frameTick(Math.max(0, Math.round(((x - left + scroll - header) / scale) * fps)), fps);
+}
 
 /** Explicit dimensions avoid intrinsic-size loops under CSS size containment. */
 export function fitPreview(width: number, height: number, aspect: number) {

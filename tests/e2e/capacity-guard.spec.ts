@@ -8,19 +8,22 @@ test('actual output quota failure cleans temporary files, preserves the project 
   await page.goto('/');
   await page.getByRole('button', { name: '텍스트', exact: true }).click();
   await page.getByRole('button', { name: /제목 추가/ }).click();
+  await page.getByRole('spinbutton', { name: '길이 (초)', exact: true }).fill('8');
+  await page.getByRole('spinbutton', { name: '길이 (초)', exact: true }).press('Enter');
   await page.getByRole('region', { name: '편집 타임라인', exact: true }).focus();
   const beforeDownload = page.waitForEvent('download');
   await page.keyboard.press('Control+s');
   const before = JSON.parse(await fs.readFile((await (await beforeDownload).path())!, 'utf8'));
   let injected = 0;
-  await page.route('**/src/engine.worker.ts?worker_file*', async (route) => {
+  await page.route('**/src/export-output.ts*', async (route) => {
     const response = await route.fetch();
     const original = await response.text();
-    const marker = 'sink = await createExportOutput(destination, format);';
-    const body = original.replace(
+    const marker = 'async write(chunk) {';
+    const changed = original.replace(
       marker,
-      `${marker}\nthrow new DOMException('Injected full disk', 'QuotaExceededError');`,
+      `${marker}\nif (++__writes === 2) throw new DOMException('Injected full disk', 'QuotaExceededError');`,
     );
+    const body = changed === original ? original : `let __writes=0;\n${changed}`;
     if (body !== original) injected++;
     await route.fulfill({ response, body });
   });
@@ -42,7 +45,7 @@ test('actual output quota failure cleans temporary files, preserves the project 
       }),
     )
     .toBe(0);
-  await page.unroute('**/src/engine.worker.ts?worker_file*');
+  await page.unroute('**/src/export-output.ts*');
   await page.getByRole('button', { name: '다시 시도', exact: true }).click();
   await expect(page.getByText('내보내기가 완료됐습니다.')).toBeVisible();
   await page.getByRole('button', { name: '편집으로 돌아가기', exact: true }).click();

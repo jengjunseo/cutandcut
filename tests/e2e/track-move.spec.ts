@@ -1,3 +1,4 @@
+import { libraryOptions } from './workspace-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 import type { Project } from '../../src/model';
@@ -19,6 +20,7 @@ async function importVideos(page: Page) {
   });
   await analyzer.close();
   await page.goto('/');
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles(
     samples.slice(0, 2).map((s: { name: string; mimeType: string; bytes: number[] }) => ({
@@ -131,6 +133,7 @@ test('1080p overlapping tracks: preview, actual MP4, linked sound and recovery a
   const start = page.getByRole('spinbutton', { name: '시작 (초)', exact: true });
   await start.fill('0');
   await start.press('Enter');
+  await page.locator('.timeline-scroll').evaluate((el) => (el.scrollLeft = 0));
   const clip = page.locator('.timeline-clip.video').filter({ hasText: 'second.mp4' });
   const from = (await clip.boundingBox())!;
   const to = (await page.locator('.track-row').first().boundingBox())!;

@@ -134,6 +134,7 @@ export function NameInput({
   return (
     <input
       aria-label={label}
+      title={name}
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={() => {

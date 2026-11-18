@@ -16,6 +16,7 @@ import { ratioOf, setRatio, ratios } from './geometry';
 import { sourceColorWarning } from './color';
 import { ProgressWatch } from './progress-watch';
 import { exportBudget } from './export-policy';
+import { exportStem, safeStem } from './naming';
 import {
   chooseExportFile,
   removeExportFile,
@@ -37,7 +38,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
   const [format, setFormat] = useState<'mp4' | 'webm' | 'wav' | 'mp3'>('mp4'),
     [quality, setQuality] = useState('standard'),
     [bitrate, setBitrate] = useState(8),
-    [filename, setFilename] = useState(snapshot.name),
+    [filename, setFilename] = useState(() => exportStem(snapshot.name)),
     [caps, setCaps] = useState<Capabilities | null>(null),
     [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error' | 'cancelled'>('idle'),
     [progress, setProgress] = useState(0),
@@ -173,7 +174,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
       setStatus('error');
     };
     try {
-      job.handle = await chooseExportFile(filename, format, estimate);
+      job.handle = await chooseExportFile(safeStem(filename), format, estimate);
       if (gen !== generation.current) return;
       const release = await holdExportFile(job.id);
       if (gen !== generation.current) {
@@ -525,6 +526,9 @@ export default function ExportDialog({ project, onClose, range }: Props) {
             <p>
               {formatBytes(blob.size)} · {format.toUpperCase()}
             </p>
+            <p className="output-filename" aria-label="최종 파일명">
+              {safeStem(filename)}.{format}
+            </p>
             {savedToFile ? (
               <p>선택한 위치에 저장했습니다. 다운로드로 사본을 받을 수도 있습니다.</p>
             ) : null}
@@ -581,7 +585,7 @@ export default function ExportDialog({ project, onClose, range }: Props) {
                 className="primary"
                 onClick={() => {
                   downloaded.current = true;
-                  download(blob, `${filename.trim() || 'CyanCut'}.${format}`);
+                  download(blob, `${safeStem(filename)}.${format}`);
                 }}
               >
                 <Download size={16} /> 파일 다운로드

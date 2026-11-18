@@ -1,3 +1,4 @@
+import { libraryOptions } from './workspace-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 import type { Project } from '../../src/model';
@@ -29,6 +30,7 @@ test('caption paste: keyboard, button and V preserve underlying media, undo, rec
     return (await import(/* @vite-ignore */ url)).makeFixtures().then((rows: any[]) => rows[0]);
   });
   await page.goto('/');
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: fixture.name,

@@ -4,13 +4,14 @@
     "startupWorkerGzip": 213552,
     "encoderJsGzip": 388388,
     "cssGzip": 65620,
-    "fontRaw": 9724900
+    "fontRaw": 18433640
   },
   "max": {
     "initialJsGzip": 129631,
     "startupWorkerGzip": 234908,
     "encoderJsGzip": 427227,
     "cssGzip": 72182,
-    "fontRaw": 10697390
-  }
+    "fontRaw": 20277004
+  },
+  "fontBudgetReason": "2026-11-18: requested two additional OFL Korean families, lazily loaded. Measured 18,433,640 font asset bytes +10%; JS/Worker/CSS/encoder ceilings unchanged."
 }

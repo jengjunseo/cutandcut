@@ -1,3 +1,4 @@
+import { libraryOptions, closeMobilePanel } from './workspace-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 
@@ -9,8 +10,13 @@ async function title(page: Page) {
       .locator('.mobile-navigation')
       .getByRole('button', { name: '미디어', exact: true })
       .click();
-  await page.getByRole('button', { name: '텍스트', exact: true }).click();
+  if (!(await page.locator('.mobile-dock').isVisible()))
+    await page.getByRole('button', { name: '텍스트', exact: true }).click();
+  if (await page.locator('.mobile-dock').isVisible())
+    await page.locator('.mobile-dock').getByRole('button', { name: '텍스트', exact: true }).click();
   await page.getByRole('button', { name: /제목 추가/ }).click();
+  await closeMobilePanel(page);
+  await expect(page.locator('.save-state')).toContainText('기기에 자동 저장됨');
 }
 
 test('editing regression: released pointer capture cannot resurrect a deleted track', async ({
@@ -25,6 +31,7 @@ test('editing regression: released pointer capture cannot resurrect a deleted tr
   await clip.evaluate((el) => el.releasePointerCapture(1));
   await page.mouse.move(100, 100);
   await page.mouse.up();
+  await page.getByLabel('텍스트 · 이미지 트랙 메뉴', { exact: true }).click();
   await page.getByRole('button', { name: '텍스트 · 이미지 트랙 삭제', exact: true }).click();
   await expect(page.locator('.timeline-clip')).toHaveCount(0);
   await expect(page.locator('.track-row')).toHaveCount(3);
@@ -53,6 +60,7 @@ test('editing regression: track deletion survives an unchanged property field bl
 }) => {
   await title(page);
   await page.getByRole('spinbutton', { name: '시작 (초)', exact: true }).focus();
+  await page.getByLabel('텍스트 · 이미지 트랙 메뉴', { exact: true }).click();
   await page.getByRole('button', { name: '텍스트 · 이미지 트랙 삭제', exact: true }).click();
   await expect(page.locator('.timeline-clip')).toHaveCount(0);
   await expect(page.locator('.track-row')).toHaveCount(3);
@@ -136,6 +144,7 @@ test('Shotcut: linked S/X/C/V edits persist and produce a real playable MP4', as
     const url = '/tests/fixtures.browser.ts';
     return (await import(/* @vite-ignore */ url)).makeFixtures().then((rows: any[]) => rows[0]);
   });
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: fixture.name,
@@ -234,6 +243,7 @@ test('Shotcut: clipboard tools remain reachable on a compact touch screen', asyn
   });
   const page = await context.newPage();
   await title(page);
+  await page.locator('.mobile-dock').getByRole('button', { name: '더보기', exact: true }).click();
   for (const label of ['복사 (C / Ctrl/Cmd+C)', '붙여넣기 (Ctrl/Cmd+V)', '스냅 (Ctrl/Cmd+P)']) {
     const box = (await page.getByRole('button', { name: label, exact: true }).boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);

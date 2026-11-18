@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { SkipBack, SkipForward, Play, Pause, Film, Upload, Maximize } from 'lucide-react';
 import type { Clip, Project } from './model';
@@ -10,6 +11,8 @@ import { shortcutKey } from './shortcuts';
 import { VIDEO_CONTEXT } from './color';
 type Props = {
   mediaRevision: number;
+  support?: React.ReactNode;
+  onLayout?: (label: string) => void;
   mobile?: boolean;
   blocked?: boolean;
   project: Project;
@@ -31,6 +34,8 @@ type Props = {
 };
 export default function Preview({
   mediaRevision,
+  support,
+  onLayout,
   mobile = false,
   blocked = false,
   project: p,
@@ -58,6 +63,8 @@ export default function Preview({
     latest = useRef({ p, time, playing });
   latest.current = { p, time, playing };
   const [error, setError] = useState('');
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useEffect(() => setHost(document.getElementById('preview-settings-slot')), []);
   const [frameReady, setFrameReady] = useState(false);
   const cancelGesture = useRef<(() => void) | undefined>(undefined);
   useEffect(() => () => cancelGesture.current?.(), [p.id]);
@@ -65,6 +72,9 @@ export default function Preview({
     cancelGesture.current?.();
   }, [mobile, blocked]);
   const [bounds, setBounds] = useState({ width: 640, height: 360 });
+  const [textBounds, setTextBounds] = useState<
+    Record<string, { left: number; top: number; width: number; height: number }>
+  >({});
   const [quality, setQuality] = useState(1),
     [cropMode, setCropMode] = useState(false),
     [gesture, setGesture] = useState<Clip>();
@@ -95,6 +105,7 @@ export default function Preview({
           c.getContext('2d', VIDEO_CONTEXT)!.drawImage(bitmap, 0, 0);
           setError('');
           setFrameReady(true);
+          setTextBounds(e.data.textBounds ?? {});
         }
         bitmap.close();
       } else if (e.data.type === 'preview-error' && e.data.seq === seq.current)
@@ -186,8 +197,11 @@ export default function Preview({
         value = { crop };
       }
       if (mode === 'move') {
-        if (Math.abs(value.x! - 0.5) < 0.015) value.x = 0.5;
-        if (Math.abs(value.y! - 0.5) < 0.015) value.y = 0.5;
+        const guides = p.safeArea ? [0.1, 0.5, 0.9] : [0.5];
+        for (const axis of ['x', 'y'] as const) {
+          const guide = guides.find((g) => Math.abs(value[axis]! - g) < 0.015);
+          if (guide !== undefined) value[axis] = guide;
+        }
       }
       next = {
         ...base,
@@ -255,87 +269,127 @@ export default function Preview({
     shown?.fit === 'cover'
       ? Math.max(fitted.width / sourceWidth, fitted.height / sourceHeight)
       : Math.min(fitted.width / sourceWidth, fitted.height / sourceHeight);
+  const textBox = shown?.kind === 'text' ? textBounds[shown.id] : undefined;
+  const boxWidth =
+    shown?.kind === 'text'
+      ? Math.max(8, (textBox?.width ?? 0.05) * fitted.width * shown.scale)
+      : sourceWidth * fit * (shown?.scale ?? 1);
+  const boxHeight =
+    shown?.kind === 'text'
+      ? Math.max(16, (textBox?.height ?? 0.05) * fitted.height * shown.scale)
+      : sourceHeight * fit * (shown?.scale ?? 1);
+  function closeView(event: React.SyntheticEvent<HTMLElement>) {
+    const menu = event.currentTarget.closest('details');
+    if (menu) {
+      menu.open = false;
+      menu.querySelector<HTMLElement>('summary')?.focus();
+    }
+  }
   return (
     <section className="preview-panel" aria-label="미리보기" inert={blocked}>
-      <div className="panel-top">
-        <span className="eyebrow">미리보기</span>
-        <details
-          className="preview-options"
-          open={!mobile}
-          onBlur={(e) => {
-            if (mobile && !e.currentTarget.contains(e.relatedTarget as Node))
-              e.currentTarget.open = false;
-          }}
-          onKeyDown={(e) => {
-            if (mobile && e.key === 'Escape' && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              e.stopPropagation();
-              e.currentTarget.open = false;
-              e.currentTarget.querySelector('summary')?.focus();
-            }
-          }}
-        >
-          <summary>
-            미리보기 설정{rate !== 1 ? ` · ${rate < 0 ? '역방향 탐색' : `${rate}×`}` : ''}
-          </summary>
-          <div className="preview-meta">
-            <select
-              aria-label="미리보기 품질"
-              title="출력 해상도는 유지됩니다. 프록시 파일을 생성하지 않습니다."
-              value={quality}
-              onChange={(e) => setQuality(Number(e.target.value))}
-            >
-              <option value={1}>미리보기 100%</option>
-              <option value={0.5}>미리보기 50%</option>
-              <option value={0.25}>미리보기 25%</option>
-            </select>
-            <button
-              className="text-tool"
-              aria-pressed={p.safeArea ?? false}
-              onClick={() => update({ ...p, safeArea: !p.safeArea })}
-            >
-              안전 영역
-            </button>
-            {selectedText && selectedText.kind !== 'text' ? (
-              <button
-                className="text-tool"
-                disabled={!!locked || selectedText.rotation !== 0}
-                aria-pressed={cropMode}
-                onClick={() => setCropMode(!cropMode)}
-              >
-                크롭 핸들
-              </button>
-            ) : null}
-            <button
-              className="text-tool"
-              disabled={!p.clips.length || !!processing}
-              onClick={capture}
-            >
-              정지 프레임
-            </button>
-            <span>
-              {p.width} × {p.height}
-            </span>
-            <span>{p.fps} FPS</span>
-            <span className="dot-separator" />
-            <span>로컬 처리</span>
-            {mobile ? meter : null}
-            <IconButton
-              label="미리보기 전체 화면"
-              onClick={() => {
-                if (!stage.current?.requestFullscreen)
-                  notify('이 환경은 전체 화면을 지원하지 않습니다.');
-                else
-                  void stage.current
-                    .requestFullscreen()
-                    .catch(() => notify('이 환경은 전체 화면을 지원하지 않습니다.'));
-              }}
-            >
-              <Maximize size={15} />
-            </IconButton>
-          </div>
-        </details>
-      </div>
+      {host
+        ? createPortal(
+            <>
+              {' '}
+              <div className="preview-view-menu">
+                <details
+                  className="preview-options"
+                  onBlur={(e) => {
+                    if (mobile && !e.currentTarget.contains(e.relatedTarget as Node))
+                      e.currentTarget.open = false;
+                  }}
+                  onKeyDown={(e) => {
+                    if (mobile && e.key === 'Escape' && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.currentTarget.open = false;
+                      e.currentTarget.querySelector('summary')?.focus();
+                    }
+                  }}
+                >
+                  <summary>
+                    보기{rate !== 1 ? ` · ${rate < 0 ? '역방향 탐색' : `${rate}×`}` : ''}
+                  </summary>
+                  <div className="preview-meta">
+                    <select
+                      aria-label="미리보기 품질"
+                      title="출력 해상도는 유지됩니다. 프록시 파일을 생성하지 않습니다."
+                      value={quality}
+                      onChange={(e) => setQuality(Number(e.target.value))}
+                    >
+                      <option value={1}>미리보기 100%</option>
+                      <option value={0.5}>미리보기 50%</option>
+                      <option value={0.25}>미리보기 25%</option>
+                    </select>
+                    <button
+                      className="text-tool"
+                      aria-pressed={p.safeArea ?? false}
+                      onClick={(event) => {
+                        update({ ...p, safeArea: !p.safeArea });
+                        closeView(event);
+                      }}
+                    >
+                      안전 영역
+                    </button>
+                    {selectedText && selectedText.kind !== 'text' ? (
+                      <button
+                        className="text-tool"
+                        disabled={!!locked || selectedText.rotation !== 0}
+                        aria-pressed={cropMode}
+                        onClick={(event) => {
+                          setCropMode(!cropMode);
+                          closeView(event);
+                        }}
+                      >
+                        크롭 핸들
+                      </button>
+                    ) : null}
+                    <button
+                      className="text-tool"
+                      disabled={!p.clips.length || !!processing}
+                      onClick={(event) => {
+                        capture();
+                        closeView(event);
+                      }}
+                    >
+                      정지 프레임
+                    </button>
+                    <span>
+                      {p.width} × {p.height}
+                    </span>
+                    <span>{p.fps} FPS</span>
+                    <span className="dot-separator" />
+                    <span>로컬 처리</span>
+                    {mobile ? meter : null}
+                    <IconButton
+                      label="미리보기 전체 화면"
+                      onClick={() => {
+                        if (!stage.current?.requestFullscreen)
+                          notify('이 환경은 전체 화면을 지원하지 않습니다.');
+                        else
+                          void stage.current
+                            .requestFullscreen()
+                            .catch(() => notify('이 환경은 전체 화면을 지원하지 않습니다.'));
+                      }}
+                    >
+                      <Maximize size={15} />
+                    </IconButton>
+                    {support}
+                    <fieldset>
+                      <legend>화면 배치</legend>
+                      {['균형', '프리뷰 중심', '타임라인 중심', '배치 초기화'].map((label) => (
+                        <button key={label} className="secondary" onClick={() => onLayout?.(label)}>
+                          {label}
+                        </button>
+                      ))}
+                    </fieldset>
+                  </div>
+                </details>
+              </div>
+            </>,
+            host,
+          )
+        : null}
       <div className="preview-area" ref={stage}>
         <div
           className="canvas-wrap"
@@ -359,15 +413,52 @@ export default function Preview({
               time >= selectedText.start &&
               time < selectedText.start + selectedText.duration ? (
                 <div
-                  className={`text-selection visual-selection ${locked ? 'selection-locked' : ''}`}
+                  className={`text-selection visual-selection ${locked ? 'selection-locked' : ''} ${Math.min(boxWidth, boxHeight) < 48 ? 'small-selection' : ''}`}
+                  tabIndex={locked ? -1 : 0}
+                  role="button"
+                  aria-label="선택 클립 위치 조절"
+                  onKeyDown={(e) => {
+                    if (
+                      locked ||
+                      e.target !== e.currentTarget ||
+                      !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
+                    )
+                      return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const step = e.shiftKey ? 10 : 1;
+                    update({
+                      ...p,
+                      clips: p.clips.map((c) =>
+                        c.id === shown!.id
+                          ? {
+                              ...c,
+                              x:
+                                c.x +
+                                (e.key === 'ArrowLeft'
+                                  ? -step
+                                  : e.key === 'ArrowRight'
+                                    ? step
+                                    : 0) /
+                                  p.width,
+                              y:
+                                c.y +
+                                (e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0) /
+                                  p.height,
+                            }
+                          : c,
+                      ),
+                    });
+                  }}
                   style={{
                     left: `${shown!.x * 100}%`,
                     top: `${shown!.y * 100}%`,
-                    width:
-                      selectedText.kind === 'text' ? undefined : sourceWidth * fit * shown!.scale,
-                    height:
-                      selectedText.kind === 'text' ? undefined : sourceHeight * fit * shown!.scale,
-                    transform: `translate(-50%,-50%) rotate(${shown!.rotation}deg)`,
+                    width: boxWidth,
+                    height: boxHeight,
+                    transformOrigin: textBox ? '0 0' : undefined,
+                    transform: textBox
+                      ? `rotate(${shown!.rotation}deg) translate(${textBox.left * fitted.width * shown!.scale}px,${textBox.top * fitted.height * shown!.scale}px)`
+                      : `translate(-50%,-50%) rotate(${shown!.rotation}deg)`,
                   }}
                   onPointerDown={dragText}
                   title={locked ? '잠긴 트랙' : '드래그하여 위치 변경 · 중앙에 스냅'}

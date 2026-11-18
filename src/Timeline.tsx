@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo, memo } from 'react';
+import { useRef, useState, useEffect, useLayoutEffect, useMemo, memo } from 'react';
 import {
   MousePointer2,
   Scissors,
@@ -31,6 +31,7 @@ import {
   tick,
   timecode,
   snapTime,
+  frameTick,
   move,
   trim,
   linked,
@@ -45,6 +46,9 @@ import PrecisionTools from './PrecisionTools';
 import { shortcutKey } from './shortcuts';
 import EditorPanel from './EditorPanel';
 import TrackSettings from './TrackSettings';
+import { zoomRanges, zoomScale, nextZoom } from './zoom';
+import { assetPointerEvent, type AssetPointerDetail } from './AssetDragHandle';
+import { timelinePosition } from './geometry';
 type Props = {
   mobile?: boolean;
   blocked?: boolean;
@@ -69,6 +73,7 @@ type Props = {
   removeTrack: (id: string) => void;
   addTrack: (kind: 'audio' | 'visual') => void;
   dropAsset: (assetId: string, trackId: string, start: number) => void;
+  dropAssets: (ids: string[], trackId: string, start: number) => void;
   applyTransition: (kind: Transition['kind'], clipId: string) => void;
   snap: boolean;
   setSnap: (s: boolean) => void;
@@ -102,6 +107,7 @@ export default memo(function Timeline({
   removeTrack,
   addTrack,
   dropAsset,
+  dropAssets,
   applyTransition,
   snap,
   setSnap,
@@ -117,6 +123,7 @@ export default memo(function Timeline({
   const [trackEditor, setTrackEditor] = useState<string>();
   const editedTrack = p.tracks.find((t) => t.id === trackEditor);
   const cancelGesture = useRef<(() => void) | undefined>(undefined);
+  const [dropHint, setDropHint] = useState('');
   useEffect(() => () => cancelGesture.current?.(), [p.id]);
   useEffect(() => {
     cancelGesture.current?.();
@@ -140,6 +147,115 @@ export default memo(function Timeline({
     [snapPoint, setSnapPoint] = useState<number | null>(null),
     [trackMenu, setTrackMenu] = useState(false);
   const fittedProject = useRef('');
+  const [zoomRange, setZoomRange] = useState<number | 'fit' | 'selection'>('fit');
+  const fitSpan = useRef(6),
+    hasZoomPreference = useRef(false);
+  const pendingScroll = useRef<number | undefined>(undefined),
+    previousWidth = useRef(1000);
+  useLayoutEffect(() => {
+    if (pendingScroll.current !== undefined && scroll.current) {
+      scroll.current.scrollLeft = pendingScroll.current;
+      pendingScroll.current = undefined;
+    }
+  }, [zoom, viewport]);
+  const [density, setDensity] = useState(() => {
+    try {
+      return localStorage.getItem('cyancut-track-density') || 'normal';
+    } catch {
+      return 'normal';
+    }
+  });
+  function chooseZoom(value: number | 'fit' | 'selection') {
+    hasZoomPreference.current = true;
+    if (value === 'fit') fitSpan.current = Math.max(1, seconds(duration(p)) + 0.5);
+    if (value === 'selection') {
+      const chosen = p.clips.filter((c) => selected.includes(c.id));
+      if (!chosen.length) {
+        notify('맞출 클립을 선택하세요.');
+        return;
+      }
+      const a = Math.min(...chosen.map((c) => c.start)),
+        b = Math.max(...chosen.map((c) => c.start + c.duration));
+      fitSpan.current = Math.max(0.1, seconds(b - a) + 0.3);
+      seek(a);
+      if (scroll.current) scroll.current.scrollLeft = seconds(a) * zoom;
+    }
+    setZoomRange(value);
+    const span = typeof value === 'number' ? value : fitSpan.current;
+    const scale = zoomScale(viewport - headerWidth, span);
+    const s = scroll.current;
+    if (s) {
+      const x = seconds(time) * zoom - s.scrollLeft;
+      const anchor =
+        x >= 0 && x <= viewport - headerWidth
+          ? seconds(time)
+          : (s.scrollLeft + (viewport - headerWidth) / 2) / zoom;
+      const fraction = x >= 0 && x <= viewport - headerWidth ? x / (viewport - headerWidth) : 0.5;
+      pendingScroll.current = Math.max(0, anchor * scale - fraction * (viewport - headerWidth));
+      if (value === 'selection') {
+        const a = p.clips
+          .filter((c) => selected.includes(c.id))
+          .reduce((a, c) => Math.min(a, c.start), Infinity);
+        pendingScroll.current = Math.max(0, (seconds(a) - 0.15) * scale);
+      }
+      if (scale === zoom) {
+        s.scrollLeft = pendingScroll.current;
+        pendingScroll.current = undefined;
+      }
+    }
+    setZoom(scale);
+    try {
+      localStorage.setItem(`cyancut-zoom-v2-${p.id}`, JSON.stringify({ value, span }));
+    } catch {
+      /* optional preference */
+    }
+  }
+  function stepZoom(direction: number) {
+    chooseZoom(nextZoom((viewport - headerWidth) / zoom, direction));
+  }
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`cyancut-zoom-v2-${p.id}`) || 'null');
+      hasZoomPreference.current = !!saved;
+      if (saved && Number.isFinite(saved.span) && saved.span > 0) {
+        fitSpan.current = saved.span;
+        setZoomRange(
+          saved.value === 'fit' || saved.value === 'selection' || zoomRanges.includes(saved.value)
+            ? saved.value
+            : 'fit',
+        );
+        setZoom(zoomScale(viewport - headerWidth, saved.span));
+      }
+    } catch {
+      hasZoomPreference.current = false;
+    }
+    fittedProject.current = '';
+  }, [p.id]);
+  useEffect(() => {
+    const value = zoomRange;
+    const span = typeof value === 'number' ? value : fitSpan.current;
+    const available = viewport - headerWidth,
+      scale = zoomScale(available, span),
+      s = scroll.current;
+    if (s && previousWidth.current !== available) {
+      const old = previousWidth.current,
+        x = seconds(time) * zoom - s.scrollLeft,
+        inside = x >= 0 && x <= old;
+      const anchor = inside ? seconds(time) : (s.scrollLeft + old / 2) / zoom;
+      pendingScroll.current = Math.max(0, anchor * scale - (inside ? x / old : 0.5) * available);
+    }
+    previousWidth.current = available;
+    setZoom(scale);
+  }, [viewport, headerWidth, zoomRange]);
+  useEffect(() => {
+    const fn = (event: Event) => {
+      const direction = (event as CustomEvent<number>).detail;
+      if (direction === 0) chooseZoom('fit');
+      else stepZoom(direction);
+    };
+    window.addEventListener('cyancut-zoom-step', fn);
+    return () => window.removeEventListener('cyancut-zoom-step', fn);
+  });
   const trackPopup = usePopup(trackMenu, setTrackMenu);
   const [pasteMenu, setPasteMenu] = useState(false);
   const pastePopup = usePopup(pasteMenu, setPasteMenu);
@@ -254,12 +370,7 @@ export default memo(function Timeline({
   useEffect(() => {
     if (!p.clips.length || fittedProject.current === p.id) return;
     fittedProject.current = p.id;
-    setZoom(
-      Math.max(
-        8,
-        Math.min(200, (viewport - headerWidth - 40) / Math.max(6, seconds(duration(p)) + 1)),
-      ),
-    );
+    if (!hasZoomPreference.current) chooseZoom('fit');
   }, [p.id, p.clips.length, viewport]);
   const canEdit = editable(p, linked(p, selected));
   const overlapping = useMemo(() => {
@@ -280,7 +391,11 @@ export default memo(function Timeline({
   const timelineLength = Math.max(6, seconds(duration(p)) + 2);
   const width = Math.max(viewport - headerWidth, timelineLength * zoom);
   const step = zoom >= 100 ? 1 : zoom >= 40 ? 2 : zoom >= 16 ? 5 : 10;
-  const ticks = Array.from({ length: Math.floor(width / zoom / step) + 1 }, (_, i) => i * step);
+  const firstTick = Math.max(0, Math.floor((scrollLeft - 100) / zoom / step));
+  const ticks = Array.from(
+    { length: Math.ceil((viewport + 200) / zoom / step) + 1 },
+    (_, i) => (firstTick + i) * step,
+  );
   const icon = (c: Clip) =>
     c.kind === 'text' ? (
       <Type size={12} />
@@ -292,16 +407,109 @@ export default memo(function Timeline({
       <Film size={12} />
     );
   const at = (clientX: number) =>
-    Math.max(
-      0,
-      tick(
-        (clientX -
-          scroll.current!.getBoundingClientRect().left +
-          scroll.current!.scrollLeft -
-          headerWidth) /
-          zoom,
-      ),
+    timelinePosition(
+      clientX,
+      scroll.current!.getBoundingClientRect().left,
+      scroll.current!.scrollLeft,
+      headerWidth,
+      zoom,
+      p.fps,
     );
+  const placement = useRef({ p, zoom, headerWidth, snap, time, dropAssets, notify });
+  placement.current = { p, zoom, headerWidth, snap, time, dropAssets, notify };
+  useEffect(() => {
+    let current: AssetPointerDetail | undefined,
+      animation = 0;
+    function update(detail: AssetPointerDetail, commitDrop = false) {
+      const { p, zoom, headerWidth, snap, time, dropAssets, notify } = placement.current;
+      const s = scroll.current;
+      if (!s) return;
+      const rect = s.getBoundingClientRect();
+      const inside =
+        detail.y >= rect.top &&
+        detail.y < rect.bottom &&
+        detail.x >= rect.left + headerWidth &&
+        detail.x < rect.right;
+      const row = inside
+        ? document.elementFromPoint(detail.x, detail.y)?.closest<HTMLElement>('[data-track-id]')
+        : null;
+      const track = p.tracks.find((t) => t.id === row?.dataset.trackId),
+        assets = detail.ids.map((id) => p.assets.find((a) => a.id === id));
+      const error = !track
+        ? '타임라인의 트랙에 놓으세요.'
+        : track.locked
+          ? '잠긴 트랙에는 놓을 수 없습니다.'
+          : assets.some((a) => !a || track.kind !== (a.kind === 'audio' ? 'audio' : 'visual'))
+            ? '영상·이미지는 시각 트랙, 음성은 오디오 트랙에 놓으세요.'
+            : '';
+      setDropHint(error);
+      if (error) {
+        setGhost(null);
+        if (commitDrop) notify(error);
+        return;
+      }
+      let start = timelinePosition(detail.x, rect.left, s.scrollLeft, headerWidth, zoom, p.fps);
+      if (snap) {
+        const point = snapTime(p, start, time, [], tick(8 / zoom));
+        setSnapPoint(point !== start ? point : null);
+        start = frameTick(Math.round(seconds(point) * p.fps), p.fps);
+      }
+      const length = assets.reduce(
+        (sum, a) => sum + (a!.kind === 'image' ? tick(5) : a!.duration),
+        0,
+      );
+      if (commitDrop) {
+        dropAssets(detail.ids, track!.id, start);
+        return;
+      }
+      setGhost({
+        track: track!.id,
+        start,
+        duration: length,
+        name: `${assets[0]!.name}${assets.length > 1 ? ` 외 ${assets.length - 1}개` : ''} · 겹쳐 배치`,
+      });
+    }
+    function loop() {
+      if (!current) return;
+      const s = scroll.current;
+      if (s) {
+        const r = s.getBoundingClientRect();
+        if (current.x > r.right - 30) s.scrollLeft += 12;
+        else if (current.x < r.left + placement.current.headerWidth + 30) s.scrollLeft -= 12;
+        if (
+          current.x >= r.left + placement.current.headerWidth &&
+          current.x < r.right &&
+          current.y >= r.top &&
+          current.y < r.bottom
+        ) {
+          if (current.y > r.bottom - 20) s.scrollTop += 8;
+          else if (current.y < r.top + 20) s.scrollTop -= 8;
+        }
+      }
+      update(current);
+      animation = requestAnimationFrame(loop);
+    }
+    const receive = (event: Event) => {
+      const d = (event as CustomEvent<AssetPointerDetail>).detail;
+      if (d.phase === 'move') {
+        current = d;
+        if (!animation) animation = requestAnimationFrame(loop);
+      } else {
+        cancelAnimationFrame(animation);
+        animation = 0;
+        current = undefined;
+        if (d.phase === 'drop') update(d, true);
+        setGhost(null);
+        setSnapPoint(null);
+        setDropHint('');
+      }
+    };
+    window.addEventListener(assetPointerEvent, receive);
+    return () => {
+      cancelAnimationFrame(animation);
+      window.removeEventListener(assetPointerEvent, receive);
+    };
+  }, []);
   function dragClip(e: React.PointerEvent, c: Clip, edge?: 'start' | 'end') {
     if (e.button !== 0) return;
     cancelGesture.current?.();
@@ -542,7 +750,10 @@ export default memo(function Timeline({
     const name =
       asset?.name ??
       (e.dataTransfer.types.includes('application/cyancut-transition') ? '트랜지션' : '미디어');
-    let t = at(e.clientX);
+    const rect = scroll.current!.getBoundingClientRect();
+    if (e.clientX > rect.right - 30) scroll.current!.scrollLeft += 12;
+    else if (e.clientX < rect.left + headerWidth + 25) scroll.current!.scrollLeft -= 12;
+    let t = frameTick(Math.round(seconds(at(e.clientX)) * p.fps), p.fps);
     if (snap) t = snapTime(p, t, time, [], tick(8 / zoom));
     setGhost({ track: trackId, start: t, duration: asset?.duration ?? tick(5), name });
   }
@@ -558,8 +769,13 @@ export default memo(function Timeline({
   }
   return (
     <section
-      className={`timeline-panel ${multiSelect ? 'multi-select-mode' : ''}`}
-      style={{ '--track-header-width': `${headerWidth}px` } as React.CSSProperties}
+      className={`timeline-panel density-${density} ${multiSelect ? 'multi-select-mode' : ''}`}
+      style={
+        {
+          '--track-header-width': `${headerWidth}px`,
+          '--track-height': `${density === 'compact' ? 42 : density === 'large' ? 90 : 62}px`,
+        } as React.CSSProperties
+      }
       tabIndex={0}
       aria-label="편집 타임라인"
       inert={blocked}
@@ -570,29 +786,44 @@ export default memo(function Timeline({
     >
       {mobile ? (
         <div className="mobile-timeline-bar" inert={toolsOpen}>
+          <button aria-label="분할" disabled={!canSplit} onClick={splitAction}>
+            <Scissors size={17} />
+          </button>
+          <button aria-label="삭제" disabled={!canEdit} onClick={() => remove()}>
+            <Trash2 size={17} />
+          </button>
           <span>{selected.length ? `${selected.length}개 선택` : '클립을 탭하세요'}</span>
+          <select
+            className="zoom-presets"
+            aria-label="타임라인 표시 범위"
+            value={zoomRange}
+            onChange={(e) =>
+              chooseZoom(
+                e.target.value === 'fit'
+                  ? 'fit'
+                  : e.target.value === 'selection'
+                    ? 'selection'
+                    : Number(e.target.value),
+              )
+            }
+          >
+            <option value="fit">전체</option>
+            {zoomRanges.map((v) => (
+              <option key={v} value={v}>
+                {v}초
+              </option>
+            ))}
+            <option value="selection">선택 맞춤</option>
+          </select>
           <button aria-pressed={multiSelect} onClick={() => setMultiSelect(!multiSelect)}>
             다중 선택
           </button>
-          <IconButton label="타임라인 축소 (-)" onClick={() => setZoom(Math.max(8, zoom / 1.3))}>
+          <IconButton label="타임라인 축소 (-)" onClick={() => stepZoom(-1)}>
             <Minus size={18} />
           </IconButton>
-          <IconButton label="타임라인 확대 (+)" onClick={() => setZoom(Math.min(200, zoom * 1.3))}>
+          <IconButton label="타임라인 확대 (+)" onClick={() => stepZoom(1)}>
             <Plus size={18} />
           </IconButton>
-        </div>
-      ) : null}
-      {mobile && selected.length ? (
-        <div className="mobile-clip-actions" inert={toolsOpen}>
-          <span>{p.clips.find((c) => selected.includes(c.id))?.name}</span>
-          <button disabled={!canSplit} onClick={splitAction}>
-            <Scissors size={17} />
-            분할
-          </button>
-          <button disabled={!canEdit} onClick={() => remove()}>
-            <Trash2 size={17} />
-            삭제
-          </button>
         </div>
       ) : null}
       <EditorPanel
@@ -732,6 +963,34 @@ export default memo(function Timeline({
                 </IconButton>
               </div>
               <div className="timeline-right">
+                <select
+                  aria-label="트랙 높이"
+                  value={density}
+                  onChange={(e) => {
+                    setDensity(e.target.value);
+                    try {
+                      localStorage.setItem('cyancut-track-density', e.target.value);
+                    } catch {
+                      /* optional */
+                    }
+                  }}
+                >
+                  <option value="compact">좁게</option>
+                  <option value="normal">보통</option>
+                  <option value="large">크게</option>
+                </select>
+                <details className="precision-menu">
+                  <summary>더보기</summary>{' '}
+                  <PrecisionTools
+                    p={p}
+                    time={time}
+                    selected={selected}
+                    activeTrack={activeTrack}
+                    commit={commit}
+                    seek={seek}
+                    notify={notify}
+                  />
+                </details>
                 <div className="track-menu-wrap" ref={trackPopup}>
                   <button
                     className="text-tool"
@@ -763,51 +1022,39 @@ export default memo(function Timeline({
                   ) : null}
                 </div>
                 <span className="toolbar-divider" />
-                <IconButton
-                  label="타임라인 축소 (-)"
-                  onClick={() => setZoom(Math.max(8, zoom / 1.3))}
-                >
+                <IconButton label="타임라인 축소 (-)" onClick={() => stepZoom(-1)}>
                   <Minus size={15} />
                 </IconButton>
-                <input
-                  className="zoom-range"
-                  aria-label="타임라인 확대"
-                  type="range"
-                  min={8}
-                  max={200}
-                  value={zoom}
-                  onChange={(e) => setZoom(Number(e.target.value))}
-                />
-                <IconButton
-                  label="타임라인 확대 (+)"
-                  onClick={() => setZoom(Math.min(200, zoom * 1.3))}
-                >
-                  <Plus size={15} />
-                </IconButton>
-                <IconButton
-                  label="전체 타임라인 보기"
-                  onClick={() =>
-                    setZoom(
-                      Math.max(
-                        8,
-                        (viewport - headerWidth - 40) / Math.max(10, seconds(duration(p)) + 2),
-                      ),
+                <select
+                  className="zoom-presets"
+                  aria-label="타임라인 표시 범위"
+                  value={zoomRange}
+                  onChange={(e) =>
+                    chooseZoom(
+                      e.target.value === 'fit'
+                        ? 'fit'
+                        : e.target.value === 'selection'
+                          ? 'selection'
+                          : Number(e.target.value),
                     )
                   }
                 >
+                  <option value="fit">전체</option>
+                  {zoomRanges.map((v) => (
+                    <option key={v} value={v}>
+                      {v}초
+                    </option>
+                  ))}
+                  <option value="selection">선택 맞춤</option>
+                </select>
+                <IconButton label="타임라인 확대 (+)" onClick={() => stepZoom(1)}>
+                  <Plus size={15} />
+                </IconButton>
+                <IconButton label="전체 타임라인 보기" onClick={() => chooseZoom('fit')}>
                   <ZoomIn size={15} />
                 </IconButton>
               </div>
             </div>
-            <PrecisionTools
-              p={p}
-              time={time}
-              selected={selected}
-              activeTrack={activeTrack}
-              commit={commit}
-              seek={seek}
-              notify={notify}
-            />
           </div>
         )}
       </EditorPanel>
@@ -823,6 +1070,11 @@ export default memo(function Timeline({
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setGhost(null);
         }}
       >
+        {dropHint ? (
+          <div className="drop-hint" role="status">
+            {dropHint}
+          </div>
+        ) : null}
         <div className="timeline-content" style={{ width: width + headerWidth }}>
           <div className="ruler-row">
             <div className="track-ruler-label">
@@ -924,26 +1176,32 @@ export default memo(function Timeline({
                       {track.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
                     </IconButton>
                   )}
-                  <IconButton
-                    label={`${track.name} 위로`}
-                    disabled={index === 0}
-                    onClick={() => reorderTrack(index, -1)}
-                  >
-                    <ChevronUp size={12} />
-                  </IconButton>
-                  <IconButton
-                    label={`${track.name} 아래로`}
-                    disabled={index === p.tracks.length - 1}
-                    onClick={() => reorderTrack(index, 1)}
-                  >
-                    <ChevronDown size={12} />
-                  </IconButton>
-                  <IconButton
-                    label={`${track.name} 트랙 삭제`}
-                    onClick={() => removeTrack(track.id)}
-                  >
-                    <Trash2 size={12} />
-                  </IconButton>
+                  <details className="track-more">
+                    <summary aria-label={`${track.name} 트랙 메뉴`}>⋯</summary>
+                    <div className="track-more-actions">
+                      {' '}
+                      <IconButton
+                        label={`${track.name} 위로`}
+                        disabled={index === 0}
+                        onClick={() => reorderTrack(index, -1)}
+                      >
+                        <ChevronUp size={12} />
+                      </IconButton>
+                      <IconButton
+                        label={`${track.name} 아래로`}
+                        disabled={index === p.tracks.length - 1}
+                        onClick={() => reorderTrack(index, 1)}
+                      >
+                        <ChevronDown size={12} />
+                      </IconButton>
+                      <IconButton
+                        label={`${track.name} 트랙 삭제`}
+                        onClick={() => removeTrack(track.id)}
+                      >
+                        <Trash2 size={12} />
+                      </IconButton>
+                    </div>
+                  </details>
                 </div>
               </div>
               <div
@@ -957,9 +1215,20 @@ export default memo(function Timeline({
                   if (asset) {
                     e.preventDefault();
                     e.stopPropagation();
-                    let t = at(e.clientX);
+                    let t = frameTick(Math.round(seconds(at(e.clientX)) * p.fps), p.fps);
                     if (snap) t = snapTime(p, t, time, [], tick(8 / zoom));
-                    dropAsset(asset, track.id, t);
+                    t = frameTick(Math.round(seconds(t) * p.fps), p.fps);
+                    const multiple = e.dataTransfer.getData('application/cyancut-assets');
+                    if (multiple) {
+                      try {
+                        const ids: unknown = JSON.parse(multiple);
+                        if (Array.isArray(ids) && ids.every((id) => typeof id === 'string'))
+                          dropAssets(ids, track.id, t);
+                        else notify('배치할 미디어 목록이 올바르지 않습니다.');
+                      } catch {
+                        notify('배치할 미디어 목록을 읽지 못했습니다.');
+                      }
+                    } else dropAsset(asset, track.id, t);
                   }
                   setGhost(null);
                 }}
@@ -1027,6 +1296,8 @@ export default memo(function Timeline({
                             if (
                               transition === 'dissolve' ||
                               transition === 'black' ||
+                              transition === 'slide' ||
+                              transition === 'wipe' ||
                               transition === 'white'
                             ) {
                               select([c.id]);

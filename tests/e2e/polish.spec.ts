@@ -1,3 +1,4 @@
+import { libraryOptions, closeMobilePanel } from './workspace-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 
@@ -7,7 +8,10 @@ async function importVideo(page: Page, insert = false) {
     const mod = await import(/* @vite-ignore */ url);
     return (await mod.makeFixtures())[0];
   });
-  if (insert) await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
+  if (insert) {
+    await libraryOptions(page);
+    await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
+  }
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: sample.name,
     mimeType: sample.mimeType,
@@ -34,7 +38,9 @@ test('polish: one file action, accurate imported empty state and existing insert
   await expect(page.getByRole('button', { name: '파일 선택', exact: true })).toHaveCount(0);
   await expect(page.locator('.start-canvas')).toContainText('아직 타임라인에 클립이 없습니다');
   await page.screenshot({ path: 'artifacts/polish/06-after-import.png' });
-  await page.getByRole('button', { name: '선택한 미디어 추가', exact: true }).press('Enter');
+  await page
+    .getByRole('button', { name: 'first.mp4 끌어서 배치 · Enter는 재생헤드에 추가', exact: true })
+    .press('Enter');
   await expect(page.locator('.timeline-clip')).toHaveCount(2);
   await page.getByRole('button', { name: '실행 취소 (Ctrl/Cmd+Z)', exact: true }).click();
   await expect(page.locator('.timeline-clip')).toHaveCount(0);
@@ -111,14 +117,14 @@ test('polish: touch layouts retain readable export, save feedback and portrait p
     expect(bounds.output.right).toBeLessThanOrEqual(width);
     expect(bounds.output.bottom).toBeLessThanOrEqual(bounds.header.bottom);
     expect(bounds.output.height).toBeGreaterThanOrEqual(44);
-    const nav = page.locator('.mobile-navigation');
-    await nav.getByRole('button', { name: '속성', exact: true }).click();
-    await expect(nav.getByRole('button', { name: '속성', exact: true })).toHaveAttribute(
+    const nav = page.locator('.mobile-dock');
+    await nav.getByRole('button', { name: '화면', exact: true }).click();
+    await expect(nav.getByRole('button', { name: '화면', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
     await page.getByRole('button', { name: '9:16', exact: true }).click();
-    await nav.getByRole('button', { name: '미리보기', exact: true }).click();
+    await closeMobilePanel(page);
     const preview = await page.locator('.canvas-wrap').boundingBox();
     expect(preview!.width).toBeGreaterThan(0);
     expect(preview!.height).toBeGreaterThan(0);
@@ -248,10 +254,7 @@ test('polish: long failed filenames expose a readable retry while preserving the
   await page.goto('/');
   await importVideo(page, true);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page
-    .locator('.mobile-navigation')
-    .getByRole('button', { name: '미디어', exact: true })
-    .click();
+  await page.locator('.mobile-dock').getByRole('button', { name: '미디어', exact: true }).click();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: '손상된_파일_'.repeat(30) + '.avi',
     mimeType: 'video/x-msvideo',

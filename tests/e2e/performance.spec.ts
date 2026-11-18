@@ -1,3 +1,4 @@
+import { libraryOptions } from './workspace-helpers';
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -25,6 +26,7 @@ for (const scenario of [
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.name)); // No raw error text in report.
     if (scenario.id === 'B') await page.getByRole('button', { name: '9:16', exact: true }).click();
+    await libraryOptions(page);
     await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
     const cdp = await page.context().newCDPSession(page);
     let peakMainJsHeapBytes = 0;

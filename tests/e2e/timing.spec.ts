@@ -1,3 +1,4 @@
+import { libraryOptions } from './workspace-helpers';
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 test('variable input PTS to fixed 24fps and keyboard focus', async ({ page }) => {
@@ -18,6 +19,7 @@ test('variable input PTS to fixed 24fps and keyboard focus', async ({ page }) =>
     const url = '/tests/fixtures.browser.ts';
     return (await import(/* @vite-ignore */ url)).makeVfrFixture();
   });
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: fixture.name,

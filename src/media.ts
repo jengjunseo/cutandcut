@@ -13,6 +13,7 @@ import { id, tick, seconds, type Asset, type Project, activeTracks, audioGain } 
 import { Stretch } from '@soundtouchjs/core';
 import { VIDEO_CONTEXT } from './color';
 import { PipelineFailure } from './failures';
+import { audioEnvelope, envelopeGain } from './transitions';
 type MediaResource = {
   input: Input;
   video?: InputVideoTrack;
@@ -280,8 +281,20 @@ export class AudioCursor {
         this.planes.push(data);
       }
     }
-    if (time < this.current.timestamp) return [0, 0];
-    const at = (time - this.current.timestamp) * this.current.sampleRate;
+    // Equivalent packet boundaries can differ below a nanosecond after source
+    // offset arithmetic. Preserve real gaps, but do not synthesize a silent
+    // sample at those equivalent boundaries.
+    if (time + 1e-9 < this.current.timestamp) return [0, 0];
+    // A rounded packet-end timestamp may still compare just below end while
+    // multiplying it by sampleRate rounds to numberOfFrames. Keep that final
+    // fractional sample in the current packet instead of inserting a zero.
+    const at = Math.max(
+      0,
+      Math.min(
+        this.current.numberOfFrames - 1,
+        (time - this.current.timestamp) * this.current.sampleRate,
+      ),
+    );
     const i = Math.floor(at),
       f = at - i;
     const values = this.planes.map(
@@ -346,6 +359,7 @@ class TempoCursor {
   }
 }
 export class AudioMixer {
+  envelopes = new Map<string, ReturnType<typeof audioEnvelope>>();
   cursors = new Map<string, AudioCursor | TempoCursor>();
   peak = 0;
   clippedSamples = 0;
@@ -354,7 +368,10 @@ export class AudioMixer {
   constructor(
     public project: Project,
     public pool: MediaPool,
-  ) {}
+  ) {
+    for (const c of project.clips.filter((c) => c.kind === 'audio'))
+      this.envelopes.set(c.id, audioEnvelope(project, c));
+  }
   async block(startSample: number, count: number, rate = 48000) {
     const out = new Float32Array(count * 2);
     const from = startSample / rate,
@@ -364,10 +381,11 @@ export class AudioMixer {
       (c) =>
         c.kind === 'audio' &&
         audible.has(c.trackId) &&
-        seconds(c.start) < to &&
-        seconds(c.start + c.duration) > from,
+        seconds(this.envelopes.get(c.id)!.start) < to &&
+        seconds(this.envelopes.get(c.id)!.end) > from,
     );
     for (const c of clips) {
+      const envelope = this.envelopes.get(c.id)!;
       const asset = this.project.assets.find((a) => a.id === c.assetId)!;
       let cursor = this.cursors.get(c.id);
       if (!cursor) {
@@ -377,17 +395,19 @@ export class AudioMixer {
         const start =
           (asset.origin ?? asset.audioStart) +
           seconds(c.sourceIn) +
-          Math.max(0, from - seconds(c.start)) * speed;
+          (Math.max(seconds(envelope.start), from) - seconds(c.start)) * speed;
         const end =
-          (asset.origin ?? asset.audioStart) + seconds(c.sourceIn) + seconds(c.duration) * speed;
+          (asset.origin ?? asset.audioStart) +
+          seconds(c.sourceIn) +
+          seconds(envelope.end - c.start) * speed;
         const raw = new AudioCursor(r.audio, start, end, asset.id);
         cursor =
           speed !== 1 && c.preservePitch !== false ? new TempoCursor(raw, start, end, speed) : raw;
         this.pool.pin(asset.id);
         this.cursors.set(c.id, cursor);
       }
-      const first = Math.max(0, Math.ceil(seconds(c.start) * rate) - startSample),
-        last = Math.min(count, Math.ceil(seconds(c.start + c.duration) * rate) - startSample);
+      const first = Math.max(0, Math.ceil(seconds(envelope.start) * rate) - startSample),
+        last = Math.min(count, Math.ceil(seconds(envelope.end) * rate) - startSample);
       for (let i = first; i < last; i++) {
         const t = (startSample + i) / rate;
         const values = await cursor.sample(
@@ -395,14 +415,14 @@ export class AudioMixer {
             seconds(c.sourceIn) +
             (t - seconds(c.start)) * (c.speed ?? 1),
         );
-        const gain = audioGain(c, tick(t));
+        const gain = audioGain(c, tick(t)) * envelopeGain(envelope, tick(t));
         out[i * 2] += values[0] * gain;
         out[i * 2 + 1] += values[1] * gain;
       }
     }
     for (const [key, cursor] of this.cursors) {
       const c = this.project.clips.find((c) => c.id === key);
-      if (!c || seconds(c.start + c.duration) <= to) {
+      if (!c || seconds(this.envelopes.get(c.id)!.end) <= to) {
         await cursor.close();
         this.pool.release(cursor.assetId);
         this.cursors.delete(key);

@@ -1,0 +1,229 @@
+{
+  "date": "2026-11-18–19 (Asia/Seoul)",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+  "cpu": "AMD Ryzen 3 4100 4-Core Processor              ",
+  "memoryBytes": 16957935616,
+  "scope": "Synthetic SDR moving blocks and tone. B2 uses four legacy transition boundaries for identical before/after comparison; not real game/camera footage.",
+  "caveats": [
+    "One worker reused across benchmark runs; first scenario is not a fresh browser/module startup each time.",
+    "Stages overlap: render includes decode; encode may include backpressure/mux work. Do not sum stage times.",
+    "B2 keeps legacy boundaries identical before/after. New v2 transitions have separate decoded-frame tests.",
+    "B4 is synthetic moving geometry, not supplied game/camera footage.",
+    "No cross-process peak memory or verified hardware encoder measurement.",
+    "sameByteCounts compares sizes only. The audio packet-boundary fix can change encoded bytes; bitrate, resolution and FPS settings stay the same."
+  ],
+  "records": [
+    {
+      "scenario": "B1",
+      "before": {
+        "firstMs": 15420.099999999627,
+        "warmMs": [
+          17950.099999999627,
+          15449.299999998882,
+          16346.10000000149
+        ],
+        "medianMs": 16346.10000000149,
+        "bytes": 2419387,
+        "peakVideoQueue": null,
+        "stagesMedianMs": {
+          "destination": 2.5,
+          "demux/resource": 27.00000000372529,
+          "video decode": 1409.3000000230968,
+          "prepare/fonts": 188.30000000074506,
+          "render including decode": 1534.8000000100583,
+          "video encode/backpressure": 13065.700000081211,
+          "audio decode/mix": 1259.7000000271946,
+          "audio encode": 344.1999999899417,
+          "mux/finalize": 97.39999999850988,
+          "save": 4.400000000372529
+        }
+      },
+      "after": {
+        "firstMs": 15416.5,
+        "warmMs": [
+          15405.800000000745,
+          15388,
+          15399.199999999255
+        ],
+        "medianMs": 15399.199999999255,
+        "bytes": 2419387,
+        "peakVideoQueue": 4,
+        "encodedPackets": 1800,
+        "stagesMedianMs": {
+          "destination": 2.900000002235174,
+          "demux/resource": 15.799999937415123,
+          "video decode": 708.9000000655651,
+          "prepare/fonts": 184.69999999925494,
+          "render including decode": 705.6999999955297,
+          "video encode/backpressure": 14327.899999994785,
+          "audio decode/mix": 897.1000000350177,
+          "audio encode": 219.10000005364418,
+          "mux/finalize": 99,
+          "save": 4.199999999254942
+        }
+      },
+      "improvementPercent": 5.792819082240711,
+      "effectiveFps": 116.88918904878742,
+      "sameByteCounts": true
+    },
+    {
+      "scenario": "B2",
+      "before": {
+        "firstMs": 15785.800000000745,
+        "warmMs": [
+          17889.599999999627,
+          16079.900000000373,
+          15839.5
+        ],
+        "medianMs": 16079.900000000373,
+        "bytes": 4962464,
+        "peakVideoQueue": null,
+        "stagesMedianMs": {
+          "destination": 3.599999999627471,
+          "demux/resource": 26.900000009685755,
+          "video decode": 1339.9000000264496,
+          "prepare/fonts": 200.09999999962747,
+          "render including decode": 1644.9000000543892,
+          "video encode/backpressure": 11801.09999997355,
+          "audio decode/mix": 1973.9000000208616,
+          "audio encode": 266.7999999951571,
+          "mux/finalize": 90.79999999888241,
+          "save": 7.300000000745058
+        }
+      },
+      "after": {
+        "firstMs": 15614.800000000745,
+        "warmMs": [
+          15629.699999999255,
+          15642.199999999255,
+          15640.400000002235
+        ],
+        "medianMs": 15640.400000002235,
+        "bytes": 4962464,
+        "peakVideoQueue": 4,
+        "encodedPackets": 1800,
+        "stagesMedianMs": {
+          "destination": 2.300000000745058,
+          "demux/resource": 22.099999997764826,
+          "video decode": 842.800000090152,
+          "prepare/fonts": 199.39999999850988,
+          "render including decode": 1066.1000000461936,
+          "video encode/backpressure": 14160.599999986589,
+          "audio decode/mix": 1691.300000037998,
+          "audio encode": 222.49999995157123,
+          "mux/finalize": 97.39999999850988,
+          "save": 8.199999999254942
+        }
+      },
+      "improvementPercent": 2.73322595288607,
+      "effectiveFps": 115.08657067592534,
+      "sameByteCounts": true
+    },
+    {
+      "scenario": "B3",
+      "before": {
+        "firstMs": 75460.5,
+        "warmMs": [
+          75564.19999999925,
+          75771.30000000075,
+          77559.5
+        ],
+        "medianMs": 75771.30000000075,
+        "bytes": 23658446,
+        "peakVideoQueue": null,
+        "stagesMedianMs": {
+          "destination": 1.800000000745058,
+          "demux/resource": 66.0000000167638,
+          "video decode": 4117.800000041723,
+          "prepare/fonts": 235,
+          "render including decode": 6231.400000117719,
+          "video encode/backpressure": 63411.60000008717,
+          "audio decode/mix": 4720.699999988079,
+          "audio encode": 1006.7999999783933,
+          "mux/finalize": 102.40000000037253,
+          "save": 20
+        }
+      },
+      "after": {
+        "firstMs": 74913,
+        "warmMs": [
+          74957.30000000075,
+          74836.19999999925,
+          74925.09999999776
+        ],
+        "medianMs": 74925.09999999776,
+        "bytes": 23658631,
+        "peakVideoQueue": 4,
+        "encodedPackets": 9000,
+        "stagesMedianMs": {
+          "destination": 1.5,
+          "demux/resource": 64.0000000409782,
+          "video decode": 2772.200000207871,
+          "prepare/fonts": 285.69999999925494,
+          "render including decode": 4415.1999999806285,
+          "video encode/backpressure": 69829.70000005513,
+          "audio decode/mix": 4508.099999971688,
+          "audio encode": 1053.3999998159707,
+          "mux/finalize": 97.90000000223517,
+          "save": 19.899999998509884
+        }
+      },
+      "improvementPercent": 1.1167816838340796,
+      "effectiveFps": 120.11995979985703,
+      "sameByteCounts": false
+    },
+    {
+      "scenario": "B4",
+      "before": {
+        "firstMs": 30543.400000000373,
+        "warmMs": [
+          31963.900000000373,
+          32714.700000001118,
+          32259.300000000745
+        ],
+        "medianMs": 32259.300000000745,
+        "bytes": 3403708,
+        "peakVideoQueue": null,
+        "stagesMedianMs": {
+          "destination": 2.700000001117587,
+          "demux/resource": 38.2999999858439,
+          "video decode": 2317.0999999474734,
+          "prepare/fonts": 264.69999999925494,
+          "render including decode": 2524.7000000160187,
+          "video encode/backpressure": 27448.20000003092,
+          "audio decode/mix": 1294.8999999649823,
+          "audio encode": 466.9000000040978,
+          "mux/finalize": 88.59999999962747,
+          "save": 15.099999999627471
+        }
+      },
+      "after": {
+        "firstMs": 30423.5,
+        "warmMs": [
+          30354.20000000298,
+          30330.39999999851,
+          35947.60000000149
+        ],
+        "medianMs": 30354.20000000298,
+        "bytes": 3403708,
+        "peakVideoQueue": 4,
+        "encodedPackets": 3600,
+        "stagesMedianMs": {
+          "destination": 2.399999998509884,
+          "demux/resource": 33.19999999552965,
+          "video decode": 1253.8999999910593,
+          "prepare/fonts": 255.30000000074506,
+          "render including decode": 1366.699999988079,
+          "video encode/backpressure": 28505.700000189245,
+          "audio decode/mix": 955.9000001400709,
+          "audio encode": 348.2999999038875,
+          "mux/finalize": 97.70000000298023,
+          "save": 7.599999997764826
+        }
+      },
+      "improvementPercent": 5.9055838161327765,
+      "effectiveFps": 118.59973249170285,
+      "sameByteCounts": true
+    }
+  ]
+}

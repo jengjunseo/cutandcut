@@ -41,6 +41,7 @@ import {
   paste,
   move,
   linked,
+  editable,
   clipDefaults,
   setTransition,
   validateProject,
@@ -82,6 +83,8 @@ import RecentProjects from './RecentProjects';
 import EditorPanel from './EditorPanel';
 import EditorSettings from './EditorSettings';
 import { useEditorLayout } from './useEditorLayout';
+import { setTransitionV2, type Direction } from './transitions';
+import AssetDragHandle, { assetPointerEvent } from './AssetDragHandle';
 import {
   Field,
   IconButton,
@@ -119,6 +122,7 @@ export default function App() {
     [persistMedia, setPersistMedia] = useState(true),
     [autoInsert, setAutoInsert] = useState(false),
     [assetSelection, setAssetSelection] = useState<string[]>([]),
+    [assetSelectMode, setAssetSelectMode] = useState(false),
     [startupCaps, setStartupCaps] = useState<Capabilities>(),
     [capsError, setCapsError] = useState(''),
     [toast, setToast] = useState(''),
@@ -132,8 +136,19 @@ export default function App() {
     [switching, setSwitching] = useState(false),
     [dragOver, setDragOver] = useState(false),
     [mobileTab, setMobileTab] = useState('preview'),
-    [layout, setLayout] = useState({ left: 270, right: 270, timeline: 330 }),
-    [transitionSeconds, setTransitionSeconds] = useState(0.5);
+    [layout, setLayout] = useState(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('cyancut-layout-v2') || 'null');
+        if (saved && ['left', 'right', 'timeline'].every((k) => Number.isFinite(saved[k])))
+          return saved as { left: number; right: number; timeline: number };
+      } catch {
+        /* use a safe default */
+      }
+      return { left: 270, right: 270, timeline: Math.round(window.innerHeight * 0.36) };
+    }),
+    [transitionSeconds, setTransitionSeconds] = useState(0.4),
+    [transitionDirection, setTransitionDirection] = useState<Direction>('left'),
+    [transitionAudio, setTransitionAudio] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null),
     projectInput = useRef<HTMLInputElement>(null),
     [clipboard, setClipboard] = useState<Clip[]>([]),
@@ -152,10 +167,46 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(''), 6000);
   }, []);
   const editorLayout = useEditorLayout(notify);
+  const [libraryCollapsed, setLibraryCollapsed] = useState(false),
+    [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  function applyLayout(label: string) {
+    setLayout({
+      left: 270,
+      right: 270,
+      timeline: Math.round(
+        editorLayout.height *
+          (label === '프리뷰 중심' ? 0.28 : label === '타임라인 중심' ? 0.53 : 0.36),
+      ),
+    });
+    if (label === '배치 초기화') {
+      setLibraryCollapsed(false);
+      setInspectorCollapsed(false);
+    }
+  }
+  useEffect(() => {
+    setLayout((p) => ({
+      ...p,
+      left: Math.max(200, Math.min(420, p.left)),
+      right: Math.max(200, Math.min(420, p.right)),
+      timeline: Math.max(190, Math.min(editorLayout.height * 0.55, p.timeline)),
+    }));
+  }, [editorLayout.width, editorLayout.height]);
+  useEffect(() => {
+    try {
+      localStorage.setItem('cyancut-layout-v2', JSON.stringify(layout));
+    } catch {
+      /* Layout remains usable without persistence. */
+    }
+  }, [layout]);
+  const textSession = useRef<string | undefined>(undefined);
+  const finishText = useCallback(() => {
+    textSession.current = undefined;
+  }, []);
   const mobile = editorLayout.mobile;
   const panelBlocking = mobile && mobilePanel === 'tools';
   const commit = useCallback(
     (next: Project) => {
+      finishText();
       if (switchBusy.current) return;
       const limit = projectLimitError(next);
       if (limit) {
@@ -164,13 +215,44 @@ export default function App() {
       }
       const previous = projectRef.current;
       const result = history.current.commit(previous, next);
-      if (result !== previous) editGeneration.current++;
-      projectRef.current = result;
-      setProject(result);
+      if (result !== previous) {
+        editGeneration.current++;
+        saveGeneration.current++;
+        setSaveStatus('저장 대기');
+      }
+      const revised =
+        result === previous
+          ? previous
+          : { ...result, editRevision: (previous.editRevision ?? 0) + 1 };
+      projectRef.current = revised;
+      setProject(revised);
       setDraft(undefined);
     },
     [notify],
   );
+  const editText = useCallback((clipId: string, value: string, projectId?: string) => {
+    if (switchBusy.current) return;
+    const p = projectRef.current,
+      c = p.clips.find((c) => c.id === clipId);
+    if (projectId && p.id !== projectId) return;
+    if (!c?.text || c.text.text === value || !editable(p, linked(p, [clipId]))) return;
+    const next = {
+      ...p,
+      clips: p.clips.map((c) =>
+        c.id === clipId ? { ...c, text: { ...c.text!, text: value } } : c,
+      ),
+      editRevision: (p.editRevision ?? 0) + 1,
+    };
+    if (textSession.current !== clipId) history.current.commit(p, next);
+    textSession.current = clipId;
+    projectRef.current = next;
+    editGeneration.current++;
+    saveGeneration.current++;
+    setSaveStatus('저장 대기');
+    setProject(next);
+    setDraft(undefined);
+  }, []);
+  useEffect(finishText, [project.id, tab, mobilePanel, selected, exportOpen, finishText]);
   useEffect(() => {
     let live = true;
     setStartupCaps(undefined);
@@ -204,9 +286,15 @@ export default function App() {
     audio.current.stop();
   }, []);
   function restoreHistory(action: 'undo' | 'redo') {
+    finishText();
     setPlaying(false);
-    const next = history.current[action](projectRef.current);
+    const previous = projectRef.current,
+      result = history.current[action](previous);
+    if (result === previous) return;
+    const next = { ...result, editRevision: (previous.editRevision ?? 0) + 1 };
     editGeneration.current++;
+    saveGeneration.current++;
+    setSaveStatus('저장 대기');
     projectRef.current = next;
     setProject(next);
     setDraft(undefined);
@@ -421,7 +509,7 @@ export default function App() {
         switchBusy.current
       )
         return;
-      if (e.key === ' ' && !e.ctrlKey && !e.metaKey && target?.closest('button')) return;
+      if (e.key === ' ' && !e.ctrlKey && !e.metaKey && target?.closest('button,summary')) return;
       const command = e.ctrlKey || e.metaKey;
       const key = shortcutKey(e);
       const focused = !!target?.closest('.timeline-panel');
@@ -656,19 +744,13 @@ export default function App() {
       } else if (focused) {
         if (e.key === '+' || e.key === '=') {
           e.preventDefault();
-          setZoom(Math.min(200, zoom * 1.3));
+          window.dispatchEvent(new CustomEvent('cyancut-zoom-step', { detail: 1 }));
         } else if (e.key === '-') {
           e.preventDefault();
-          setZoom(Math.max(8, zoom / 1.3));
+          window.dispatchEvent(new CustomEvent('cyancut-zoom-step', { detail: -1 }));
         } else if (key === '0') {
           e.preventDefault();
-          const width = document.querySelector('.timeline-scroll')?.clientWidth ?? 1200;
-          setZoom(
-            Math.min(
-              200,
-              Math.max(8, (width - (mobile ? 116 : 240)) / Math.max(6, seconds(duration(p)) + 2)),
-            ),
-          );
+          window.dispatchEvent(new CustomEvent('cyancut-zoom-step', { detail: 0 }));
         } else if (key === ',' || key === '.') {
           e.preventDefault();
           commit(move(p, selected, frameTick(1, p.fps) * (key === ',' ? -1 : 1)));
@@ -696,7 +778,7 @@ export default function App() {
     importBusy.current = true;
     const abort = new AbortController();
     importAbort.current = abort;
-    const wasEmpty = !projectRef.current.clips.length;
+
     const projectId = projectRef.current.id;
     const projectSignal = projectTasks.current.signal;
     const currentImport = () => !abort.signal.aborted && projectRef.current.id === projectId;
@@ -763,7 +845,6 @@ export default function App() {
             ? insertMedia(projectRef.current, asset, timeRef.current)
             : { ...projectRef.current, assets: [...projectRef.current.assets, asset] };
           commit(next);
-          setAssetSelection((ids) => [...ids, asset.id]);
           if (asset.kind === 'image' && /\.gif$/i.test(file.name))
             notify('GIF는 첫 프레임을 정지 이미지로 가져옵니다.');
           if (asset.hasAudio)
@@ -801,17 +882,6 @@ export default function App() {
         }
       }
     } finally {
-      if (currentImport() && wasEmpty && projectRef.current.clips.length)
-        setZoom(
-          Math.max(
-            8,
-            Math.min(
-              200,
-              ((document.querySelector('.timeline-scroll')?.clientWidth ?? 1000) - 240) /
-                Math.max(6, seconds(duration(projectRef.current)) + 1),
-            ),
-          ),
-        );
       setImporting('');
       importBusy.current = false;
       importAbort.current = null;
@@ -832,6 +902,65 @@ export default function App() {
     }
     const next = insertMedia(p, a, start ?? timeRef.current, trackId);
     if (next === p) notify('트랙과 링크된 오디오의 잠금 상태를 확인하세요.');
+    else commit(next);
+  }
+  function appendAssets(ids: string[], trackId: string, start: number) {
+    const p = projectRef.current,
+      assets = ids.map((id) => p.assets.find((a) => a.id === id));
+    const track = p.tracks.find((t) => t.id === trackId);
+    if (
+      !track ||
+      track.locked ||
+      assets.some(
+        (a) => !a || !files.has(a.id) || track.kind !== (a.kind === 'audio' ? 'audio' : 'visual'),
+      )
+    ) {
+      notify('원본·트랙 종류·잠금을 확인하세요. 배치하지 않았습니다.');
+      return;
+    }
+    let next = p,
+      at = start;
+    for (const asset of assets) {
+      const result = insertMedia(next, asset!, at, trackId);
+      if (result === next) {
+        notify('연결 음성의 잠금을 확인하세요. 전체 배치를 취소했습니다.');
+        return;
+      }
+      next = result;
+      at = frameTick(
+        Math.round(seconds(at + (asset!.kind === 'image' ? tick(5) : asset!.duration)) * p.fps),
+        p.fps,
+      );
+    }
+    commit(next);
+  }
+  function appendAtHead(assetId: string) {
+    const p = projectRef.current,
+      a = p.assets.find((a) => a.id === assetId);
+    if (!a) return;
+    if (a.kind === 'image') {
+      appendAsset(assetId);
+      return;
+    }
+    let track = p.tracks
+        .filter(
+          (t) => t.kind === (a.kind === 'audio' ? 'audio' : 'visual') && !t.locked && !t.hidden,
+        )
+        .at(-1),
+      base = p;
+    if (!track) {
+      track = {
+        id: id(),
+        name: a.kind === 'audio' ? '오디오' : '영상',
+        kind: a.kind === 'audio' ? 'audio' : 'visual',
+        locked: false,
+        muted: false,
+        hidden: false,
+      };
+      base = { ...p, tracks: [...p.tracks, track] };
+    }
+    const next = insertMedia(base, a, timeRef.current, track.id);
+    if (next === base) notify('연결된 트랙 잠금을 확인하세요.');
     else commit(next);
   }
   function addTrack(kind: 'audio' | 'visual') {
@@ -869,12 +998,7 @@ export default function App() {
       ...clipDefaults(),
       y: preset === 'title' ? 0.5 : 0.82,
       text: {
-        text:
-          preset === 'title'
-            ? '우리의 이야기를 시작해요'
-            : preset === 'subtitle'
-              ? '여기에 자막을 입력하세요'
-              : '기억하고 싶은 순간',
+        text: '',
         size: preset === 'title' ? Math.round(p.width / 20) : Math.round(p.width / 34),
         color: '#ffffff',
         bold: preset === 'title',
@@ -891,12 +1015,23 @@ export default function App() {
     if (mobile) setMobilePanel('inspector');
   }
   function applyTransition(kind: Transition['kind'], clipId = selected[0]) {
-    const result = setTransition(projectRef.current, clipId, kind, tick(transitionSeconds));
+    const result =
+      kind === 'white'
+        ? setTransition(projectRef.current, clipId, kind, tick(transitionSeconds))
+        : setTransitionV2(
+            projectRef.current,
+            clipId,
+            kind,
+            tick(transitionSeconds),
+            transitionDirection,
+            transitionAudio,
+          );
     commit(result.project);
     notify(result.message);
   }
   // All entry points share flush, cancellation, durable target save and history reset.
   async function switchProject(load: () => Promise<Project>) {
+    finishText();
     if (switchBusy.current || !ready) return;
     switchBusy.current = true;
     setSwitching(true);
@@ -1103,12 +1238,31 @@ export default function App() {
       className={`app mobile-${mobileTab} ${mobile ? 'ui-mobile' : 'ui-standard'} ${mobile && mobilePanel ? 'mobile-panel-open' : ''} ${mobile && editorLayout.height <= 500 && editorLayout.width < 640 ? 'mobile-short-viewport' : ''} ${mobile && editorLayout.tablet ? 'mobile-tablet' : ''} ${mobile && editorLayout.tablet && mobilePanel && mobilePanel !== 'tools' ? 'with-side-panel' : ''}`}
       style={
         {
-          '--left-width': `${layout.left}px`,
-          '--right-width': `${layout.right}px`,
-          '--timeline-height': `${layout.timeline}px`,
+          '--left-width': `${libraryCollapsed ? 0 : layout.left}px`,
+          '--right-width': `${inspectorCollapsed ? 0 : layout.right}px`,
+          '--workspace-timeline-height': `${layout.timeline}px`,
           '--mobile-viewport-height': `${editorLayout.height}px`,
         } as React.CSSProperties
       }
+      onPointerDownCapture={(e) => {
+        const target = e.target as Node;
+        for (const menu of e.currentTarget.querySelectorAll<HTMLDetailsElement>(
+          '.preview-options[open],.layout-menu[open],.precision-menu[open],.track-more[open]',
+        ))
+          if (!menu.contains(target)) menu.open = false;
+      }}
+      onKeyDownCapture={(e) => {
+        if (e.key !== 'Escape' || e.nativeEvent.isComposing) return;
+        const open = (e.target as HTMLElement).closest<HTMLDetailsElement>(
+          '.preview-options[open],.layout-menu[open],.precision-menu[open],.track-more[open]',
+        );
+        if (open) {
+          e.preventDefault();
+          e.stopPropagation();
+          open.open = false;
+          open.querySelector<HTMLElement>('summary')?.focus();
+        }
+      }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault();
@@ -1140,7 +1294,13 @@ export default function App() {
           <NameInput
             label="프로젝트 이름"
             name={project.name}
-            onCommit={(name) => commit({ ...project, name: name || '이름 없는 프로젝트' })}
+            onCommit={(name) =>
+              commit({
+                ...projectRef.current,
+                name: name || '이름 없는 프로젝트',
+                nameOrigin: 'manual',
+              })
+            }
           />
           <IconButton
             label="프로젝트 메뉴"
@@ -1269,6 +1429,33 @@ export default function App() {
           )}
           <span>{saveStatus}</span>
         </div>
+        <div id="preview-settings-slot" />
+        <div className="workspace-controls">
+          <button
+            className="text-tool"
+            aria-pressed={!libraryCollapsed}
+            onClick={() => setLibraryCollapsed((v) => !v)}
+          >
+            미디어 패널
+          </button>
+          <button
+            className="text-tool"
+            aria-pressed={!inspectorCollapsed}
+            onClick={() => setInspectorCollapsed((v) => !v)}
+          >
+            속성 패널
+          </button>
+          <details className="layout-menu">
+            <summary>배치</summary>
+            <div className="view-popover">
+              {(['균형', '프리뷰 중심', '타임라인 중심', '배치 초기화'] as const).map((label) => (
+                <button key={label} onClick={() => applyLayout(label)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </details>
+        </div>
         <div className="header-actions">
           <IconButton
             label="실행 취소 (Ctrl/Cmd+Z)"
@@ -1341,6 +1528,7 @@ export default function App() {
       <main className="editor-main" inert={settingsOpen}>
         <EditorPanel
           mobile={mobile}
+          collapsed={libraryCollapsed}
           open={mobilePanel === 'library'}
           docked={true}
           title="추가 도구"
@@ -1374,6 +1562,18 @@ export default function App() {
                   <div className="library-heading">
                     <h2>미디어 보관함</h2>
                     <span className="count-badge">{project.assets.length}</span>
+                    {project.assets.length ? (
+                      <button
+                        className="text-tool"
+                        aria-pressed={assetSelectMode}
+                        onClick={() => {
+                          setAssetSelectMode((v) => !v);
+                          setAssetSelection([]);
+                        }}
+                      >
+                        선택 모드
+                      </button>
+                    ) : null}
                   </div>
                   <button
                     className="import-button"
@@ -1382,6 +1582,18 @@ export default function App() {
                   >
                     <Plus size={17} /> 미디어 가져오기 <span>⌘ / Ctrl + 선택</span>
                   </button>
+                  {assetSelectMode ? (
+                    <button
+                      className="text-tool"
+                      onClick={() =>
+                        setAssetSelection(
+                          project.assets.filter((a) => files.has(a.id)).map((a) => a.id),
+                        )
+                      }
+                    >
+                      미디어 전체 선택
+                    </button>
+                  ) : null}
                   {assetSelection.length ? (
                     <button
                       className="primary full insert-selection"
@@ -1391,48 +1603,21 @@ export default function App() {
                       선택한 미디어 추가 · 영상은 연속 배치
                     </button>
                   ) : null}
-                  <p className="library-caption">
-                    가져온 파일은 + 또는 배치 선택으로 타임라인에 추가합니다.
-                  </p>
-                  <div className="output-support" role="status">
-                    <strong>이 기기의 출력 지원</strong>
-                    {startupCaps ? (
-                      <p>
-                        {startupCaps.mp4
-                          ? `MP4 가능${startupCaps.aacFallback ? ' · 로컬 AAC 대체 인코더' : ''}`
-                          : startupCaps.avc
-                            ? 'MP4 AAC 인코더 사용 불가'
-                            : 'MP4 영상 인코더 미지원'}{' '}
-                        · {startupCaps.webm ? 'WebM 가능' : 'WebM 미지원'} · WAV
-                        {startupCaps.mp3 ? ' · MP3' : ''}
-                      </p>
-                    ) : (
-                      <p>{capsError || '실제 인코더 확인 중…'}</p>
-                    )}
-                    {startupCaps && !startupCaps.mp4 ? (
-                      <p>
-                        원본은 업로드하지 않습니다. WebM으로 완성하거나 H.264 인코딩을 지원하는
-                        Chrome/Edge 환경에서 같은 프로젝트를 여세요.
-                      </p>
-                    ) : null}
-                    {startupCaps?.errors && Object.keys(startupCaps.errors).length ? (
-                      <p>
-                        일부 인코더 모듈을 불러오지 못했습니다. WAV와 사용 가능한 형식은 별도로
-                        출력할 수 있습니다.
-                      </p>
-                    ) : null}
-                  </div>
-                  <label className="import-policy">
-                    <input
-                      type="checkbox"
-                      checked={autoInsert}
-                      onChange={(e) => setAutoInsert(e.target.checked)}
-                    />{' '}
-                    가져오면서 타임라인에 연속 배치
-                  </label>
-                  <p className="small-note">
-                    해제하면 보관함만 가져옵니다. 이미지·텍스트는 빈 레이어에 배치됩니다.
-                  </p>
+                  <details className="library-import-options">
+                    <summary>가져오기 설정</summary>
+                    <p className="library-caption">카드를 끌거나 +로 배치하세요.</p>
+                    <label className="import-policy">
+                      <input
+                        type="checkbox"
+                        checked={autoInsert}
+                        onChange={(e) => setAutoInsert(e.target.checked)}
+                      />{' '}
+                      가져오면서 타임라인에 연속 배치
+                    </label>
+                    <p className="small-note">
+                      해제하면 보관함만 가져옵니다. 이미지·텍스트는 빈 레이어에 배치됩니다.
+                    </p>
+                  </details>
                   {importing ? (
                     <div className="import-progress" role="status">
                       <LoaderCircle size={15} className="spin" />
@@ -1483,12 +1668,28 @@ export default function App() {
                           className={`asset-card ${files.has(a.id) ? '' : 'missing'}`}
                           draggable={files.has(a.id)}
                           onDragStart={(e) => {
+                            setPlaying(false);
+                            const ids =
+                              assetSelectMode && assetSelection.includes(a.id)
+                                ? assetSelection
+                                : [a.id];
+                            e.dataTransfer.setData(
+                              'application/cyancut-assets',
+                              JSON.stringify(ids),
+                            );
                             e.dataTransfer.setData('application/cyancut-asset', a.id);
                             e.dataTransfer.setData('application/cyancut-asset-id-' + a.id, '1');
                             e.dataTransfer.effectAllowed = 'copy';
                           }}
+                          onDragEnd={() =>
+                            window.dispatchEvent(
+                              new CustomEvent(assetPointerEvent, {
+                                detail: { phase: 'cancel', ids: [], x: 0, y: 0 },
+                              }),
+                            )
+                          }
                         >
-                          <label className="asset-selection">
+                          <label className="asset-selection" hidden={!assetSelectMode}>
                             <input
                               type="checkbox"
                               aria-label={`${a.name} 배치 선택`}
@@ -1503,9 +1704,20 @@ export default function App() {
                             />
                             배치 선택
                           </label>
+                          <AssetDragHandle
+                            name={a.name}
+                            ids={
+                              assetSelectMode && assetSelection.includes(a.id)
+                                ? assetSelection
+                                : [a.id]
+                            }
+                            disabled={!files.has(a.id)}
+                            start={() => setPlaying(false)}
+                            add={() => appendAtHead(a.id)}
+                          />
                           <div className="asset-preview">
                             {a.thumbnail ? (
-                              <img src={a.thumbnail} alt={a.name} />
+                              <img src={a.thumbnail} alt={a.name} draggable={false} />
                             ) : (
                               <div className="audio-art">
                                 <Music size={23} />
@@ -1544,9 +1756,13 @@ export default function App() {
                           ) : null}
                           <span
                             className="asset-details"
-                            title={`${a.container} · ${a.videoCodec || a.audioCodec} · ${formatBytes(a.size)}`}
+                            title={[a.container, a.videoCodec || a.audioCodec, formatBytes(a.size)]
+                              .filter(Boolean)
+                              .join(' · ')}
                           >
-                            {a.container} · {a.videoCodec || a.audioCodec} · {formatBytes(a.size)}
+                            {[a.container, a.videoCodec || a.audioCodec, formatBytes(a.size)]
+                              .filter(Boolean)
+                              .join(' · ')}
                           </span>
                           <details className="asset-diagnostics">
                             <summary>파일 정보</summary>
@@ -1577,7 +1793,8 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  <div className="library-storage">
+                  <details className="library-storage">
+                    <summary>원본 저장 설정</summary>
                     <label className="check">
                       <input
                         type="checkbox"
@@ -1591,7 +1808,7 @@ export default function App() {
                       <br />
                       프로젝트 JSON에는 원본이 포함되지 않습니다.
                     </p>
-                  </div>
+                  </details>
                 </>
               ) : tab === 'text' ? (
                 <>
@@ -1623,7 +1840,7 @@ export default function App() {
                   </button>
                   <p className="small-note">
                     텍스트는 5초 클립으로 재생헤드에 추가됩니다. 속성 패널에서 내용·스타일·길이를
-                    변경하고 미리보기에서 위치를 드래그하세요. 입력은 포커스를 벗어나면 적용됩니다.
+                    변경하고 미리보기에서 위치를 드래그하세요. 입력은 즉시 반영됩니다.
                   </p>
                 </>
               ) : tab === 'captions' ? (
@@ -1634,6 +1851,8 @@ export default function App() {
                   select={setSelected}
                   seek={seek}
                   notify={notify}
+                  editText={editText}
+                  finishText={finishText}
                 />
               ) : (
                 <>
@@ -1644,7 +1863,8 @@ export default function App() {
                   {[
                     ['dissolve', '크로스 디졸브'],
                     ['black', '검정으로 페이드'],
-                    ['white', '흰색으로 페이드'],
+                    ['slide', '슬라이드'],
+                    ['wipe', '와이프'],
                   ].map(([kind, label]) => (
                     <button
                       key={kind}
@@ -1663,6 +1883,30 @@ export default function App() {
                       <Plus size={14} />
                     </button>
                   ))}
+                  <details className="legacy-transitions">
+                    <summary>이전 효과</summary>
+                    <button
+                      className="secondary full"
+                      draggable
+                      onDragStart={(e) =>
+                        e.dataTransfer.setData('application/cyancut-transition', 'white')
+                      }
+                      onClick={() => applyTransition('white')}
+                    >
+                      흰색으로 페이드 · 이전 의미 유지
+                    </button>
+                  </details>
+                  <button
+                    className="secondary full"
+                    disabled={!project.clips.find((c) => selected.includes(c.id))?.transition}
+                    onClick={() => {
+                      const kind = project.clips.find((c) => selected.includes(c.id))?.transition
+                        ?.kind;
+                      if (kind) applyTransition(kind);
+                    }}
+                  >
+                    선택 전환 설정 적용
+                  </button>
                   <Field label="전환 길이 (초)">
                     <input
                       type="number"
@@ -1677,16 +1921,65 @@ export default function App() {
                       }
                     />
                   </Field>
+                  <div className="two-fields">
+                    {[0.2, 0.4, 0.6, 1].map((v) => (
+                      <button key={v} className="secondary" onClick={() => setTransitionSeconds(v)}>
+                        {v.toFixed(1)}초
+                      </button>
+                    ))}
+                  </div>
+                  <Field label="전환 방향">
+                    <select
+                      value={transitionDirection}
+                      onChange={(e) => setTransitionDirection(e.target.value as Direction)}
+                    >
+                      {(
+                        [
+                          ['left', '왼쪽'],
+                          ['right', '오른쪽'],
+                          ['up', '위'],
+                          ['down', '아래'],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={transitionAudio}
+                      onChange={(e) => setTransitionAudio(e.target.checked)}
+                    />
+                    연결 음성도 함께 전환 · BGM 유지
+                  </label>
+                  {project.clips.find((c) => selected.includes(c.id))?.transition ? (
+                    <button
+                      className="secondary full"
+                      onClick={() =>
+                        commit({
+                          ...project,
+                          clips: project.clips.map((c) =>
+                            selected.includes(c.id) ? { ...c, transition: undefined } : c,
+                          ),
+                        })
+                      }
+                    >
+                      선택 전환 삭제
+                    </button>
+                  ) : null}
                   <div className="info-box">
                     <Layers size={17} />
                     <p>
-                      전체 영상 길이는 유지됩니다. 디졸브는 다음 영상의 잘라낸 앞부분을 사용합니다.
-                      부족하면 길이를 제한합니다.
+                      전체 길이를 유지하며 컷의 앞뒤에 총 전환 시간을 나눠 적용합니다. 양쪽 원본
+                      여유가 부족하면 실제 프레임 길이를 안내합니다.
                     </p>
                   </div>
                   <p className="small-note">
-                    동일 트랙의 인접한 두 클립에 적용됩니다. 검정·흰색 전환은 접점 전후에 각각
-                    설정한 길이만큼 페이드합니다.
+                    같은 트랙의 다음 클립을 선택해 적용하세요. 기존 전환은 기존 의미를 유지합니다.
+                    흰색 페이드는 이전 효과로 제공하며 접점 전후에 각각 설정 길이를 사용합니다.
                   </p>
                 </>
               )}
@@ -1707,6 +2000,40 @@ export default function App() {
           onPointerDown={(e) => resize(e, 'left')}
         />
         <Preview
+          onLayout={applyLayout}
+          support={
+            <>
+              {' '}
+              <div className="output-support" role="status">
+                <strong>이 기기의 출력 지원</strong>
+                {startupCaps ? (
+                  <p>
+                    {startupCaps.mp4
+                      ? `MP4 가능${startupCaps.aacFallback ? ' · 로컬 AAC 대체 인코더' : ''}`
+                      : startupCaps.avc
+                        ? 'MP4 AAC 인코더 사용 불가'
+                        : 'MP4 영상 인코더 미지원'}{' '}
+                    · {startupCaps.webm ? 'WebM 가능' : 'WebM 미지원'} · WAV
+                    {startupCaps.mp3 ? ' · MP3' : ''}
+                  </p>
+                ) : (
+                  <p>{capsError || '실제 인코더 확인 중…'}</p>
+                )}
+                {startupCaps && !startupCaps.mp4 ? (
+                  <p>
+                    원본은 업로드하지 않습니다. WebM으로 완성하거나 H.264 인코딩을 지원하는
+                    Chrome/Edge 환경에서 같은 프로젝트를 여세요.
+                  </p>
+                ) : null}
+                {startupCaps?.errors && Object.keys(startupCaps.errors).length ? (
+                  <p>
+                    일부 인코더 모듈을 불러오지 못했습니다. WAV와 사용 가능한 형식은 별도로 출력할
+                    수 있습니다.
+                  </p>
+                ) : null}
+              </div>
+            </>
+          }
           mediaRevision={mediaRevision}
           mobile={mobile}
           blocked={panelBlocking}
@@ -1761,6 +2088,7 @@ export default function App() {
         />
         <EditorPanel
           mobile={mobile}
+          collapsed={inspectorCollapsed}
           open={mobilePanel === 'inspector'}
           docked={true}
           title={selected.length ? '클립 속성' : '프로젝트 설정'}
@@ -1772,6 +2100,8 @@ export default function App() {
             commit={commit}
             notify={notify}
             onSelect={setSelected}
+            editText={editText}
+            finishText={finishText}
           />
         </EditorPanel>
       </main>
@@ -1811,6 +2141,7 @@ export default function App() {
         removeTrack={removeTrack}
         addTrack={addTrack}
         dropAsset={appendAsset}
+        dropAssets={appendAssets}
         applyTransition={applyTransition}
         snap={snap}
         setSnap={setSnap}

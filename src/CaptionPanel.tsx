@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { type Project, type Clip, seconds, tick } from './model';
 import { parseCaptions, addCaptions, serializeCaptions } from './captions';
 import { download } from './storage';
+import LiveTextInput from './LiveTextInput';
 export default function CaptionPanel({
   p,
   selected,
@@ -9,6 +10,8 @@ export default function CaptionPanel({
   select,
   seek,
   notify,
+  editText,
+  finishText,
 }: {
   p: Project;
   selected: string[];
@@ -16,6 +19,8 @@ export default function CaptionPanel({
   select: (ids: string[]) => void;
   seek: (t: number) => void;
   notify: (s: string) => void;
+  editText: (id: string, value: string, projectId?: string) => void;
+  finishText: () => void;
 }) {
   const latest = useRef(p);
   const [exportScope, setExportScope] = useState('captions');
@@ -32,8 +37,8 @@ export default function CaptionPanel({
     <div className="caption-panel">
       <h2>자막 · 텍스트 목록</h2>
       <p className="small-note">
-        한글 입력을 마친 뒤 포커스를 옮기면 저장됩니다. 기본 출력 대상은 자막입니다. 이전 프로젝트의
-        미분류 텍스트는 역할을 지정하거나 전체 출력을 선택하세요.
+        입력은 즉시 반영되고 자동 저장됩니다. 기본 출력 대상은 자막입니다. 이전 프로젝트의 미분류
+        텍스트는 역할을 지정하거나 전체 출력을 선택하세요.
       </p>
       <button className="secondary full" onClick={() => input.current?.click()}>
         SRT / VTT 가져오기
@@ -120,6 +125,8 @@ export default function CaptionPanel({
             commit({ ...p, clips: p.clips.map((x) => (x.id === c.id ? { ...x, ...value } : x)) })
           }
           notify={notify}
+          edit={(value) => editText(c.id, value, p.id)}
+          finish={finishText}
         />
       ))}
       {!captions.length ? (
@@ -135,6 +142,8 @@ function CaptionRow({
   select,
   save,
   notify,
+  edit,
+  finish,
 }: {
   c: Clip;
   locked: boolean;
@@ -142,13 +151,12 @@ function CaptionRow({
   select: () => void;
   save: (v: Partial<Clip>) => void;
   notify: (s: string) => void;
+  edit: (value: string) => void;
+  finish: () => void;
 }) {
-  const composing = useRef(false);
-  const [text, setText] = useState(c.text!.text),
-    [start, setStart] = useState(seconds(c.start).toFixed(3)),
+  const [start, setStart] = useState(seconds(c.start).toFixed(3)),
     [end, setEnd] = useState(seconds(c.start + c.duration).toFixed(3));
   useEffect(() => {
-    setText(c.text!.text);
     setStart(seconds(c.start).toFixed(3));
     setEnd(seconds(c.start + c.duration).toFixed(3));
   }, [c.text!.text, c.start, c.duration]);
@@ -182,19 +190,11 @@ function CaptionRow({
           <option value="title">제목 · 장식</option>
         </select>
       </label>
-      <textarea
-        aria-label={`${c.name} 목록 내용`}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onCompositionStart={() => {
-          composing.current = true;
-        }}
-        onCompositionEnd={() => {
-          composing.current = false;
-        }}
-        onBlur={() => {
-          if (!composing.current && text !== c.text!.text) save({ text: { ...c.text!, text } });
-        }}
+      <LiveTextInput
+        label={`${c.name} 목록 내용`}
+        value={c.text!.text}
+        edit={edit}
+        finish={finish}
       />
       <div className="two-fields">
         <label>

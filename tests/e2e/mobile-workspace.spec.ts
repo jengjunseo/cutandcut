@@ -1,3 +1,4 @@
+import { libraryOptions, viewOptions, precisionOptions } from './workspace-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 import type { Project } from '../../src/model';
@@ -36,6 +37,7 @@ test('mobile real files: cuts, layers, transition, music, caption paste, recover
   });
   await mobileMode(page);
   await page.locator('.mobile-dock').getByRole('button', { name: '미디어', exact: true }).tap();
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles(
     samples.map((sample: { name: string; mimeType: string; bytes: number[] }) => ({
@@ -52,7 +54,7 @@ test('mobile real files: cuts, layers, transition, music, caption paste, recover
   await closePanel(page);
   await seek(page, '1');
   await page
-    .locator('.mobile-clip-actions')
+    .locator('.mobile-timeline-bar')
     .getByRole('button', { name: '분할', exact: true })
     .tap();
   await expect(page.locator('.timeline-clip.video')).toHaveCount(3);
@@ -186,7 +188,10 @@ async function mobileMode(page: Page) {
   await page.goto('/');
   await expect(page.locator('.save-state')).toContainText('기기에 자동 저장됨');
   await page.getByRole('button', { name: '프로젝트 메뉴', exact: true }).click();
-  await page.getByRole('button', { name: '앱 설정 · UI 모드', exact: true }).click();
+  await page
+    .locator('#project-menu')
+    .getByRole('button', { name: '앱 설정 · UI 모드', exact: true })
+    .click();
   await page.getByRole('radio', { name: /모바일 모드/ }).check();
   await page.getByRole('button', { name: '편집 계속하기', exact: true }).click();
   await expect(page.locator('.app')).toHaveClass(/ui-mobile/);
@@ -306,6 +311,7 @@ test('mobile mode: changing UI preserves project, clipboard and undo; storage fa
   const before = await projectFile(page);
   await page.keyboard.press('Control+c');
   await page.getByRole('button', { name: '앱 설정 · UI 모드', exact: true }).tap();
+  await page.setViewportSize({ width: 1440, height: 960 });
   await page.getByRole('radio', { name: /기본 모드/ }).check();
   await page.getByRole('button', { name: '편집 계속하기', exact: true }).click();
   await expect(page.locator('.app')).toHaveClass(/ui-standard/);
@@ -395,6 +401,7 @@ test('mobile touch: navigation does not edit; moves, trims, groups and track con
   await page.locator('.timeline-clip.text').nth(1).tap();
   await expect(page.locator('.timeline-clip.text[aria-pressed="true"]')).toHaveCount(2);
   await page.locator('.mobile-dock').getByRole('button', { name: '더보기', exact: true }).tap();
+  await precisionOptions(page);
   await page.getByRole('button', { name: '선택 클립 그룹화', exact: true }).tap();
   await closePanel(page);
   const grouped = await projectFile(page);
@@ -407,7 +414,7 @@ test('mobile touch: navigation does not edit; moves, trims, groups and track con
     .tap();
   await closePanel(page);
   await expect(
-    page.locator('.mobile-clip-actions').getByRole('button', { name: '삭제', exact: true }),
+    page.locator('.mobile-timeline-bar').getByRole('button', { name: '삭제', exact: true }),
   ).toBeDisabled();
   await page.getByRole('button', { name: /텍스트 · 이미지 트랙 설정/, exact: true }).tap();
   await page
@@ -496,6 +503,7 @@ test('mobile advanced tools: placement menu, track creation, precision, captions
     .tap();
   await page.getByRole('button', { name: '영상 · 이미지 · 텍스트', exact: true }).tap();
   await expect(page.locator('.track-row')).toHaveCount(5);
+  await precisionOptions(page);
   await page.getByRole('button', { name: '구간 시작 I', exact: true }).tap();
   await page.getByRole('button', { name: '다음 경계', exact: true }).tap();
   await page.getByRole('button', { name: '구간 끝 O', exact: true }).tap();
@@ -527,6 +535,7 @@ test('mobile advanced tools: placement menu, track creation, precision, captions
   await expect(page.getByRole('region', { name: '편집 타임라인', exact: true })).toBeFocused();
   await expect(page.getByRole('region', { name: '추가 도구', exact: true })).toHaveCount(0);
   await page.locator('.preview-options > summary').tap();
+  await viewOptions(page);
   await page.getByLabel('미리보기 품질').selectOption('0.5');
   await page.getByRole('button', { name: '안전 영역', exact: true }).tap();
   await page.keyboard.press('Escape');

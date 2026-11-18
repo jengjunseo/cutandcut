@@ -17,6 +17,7 @@ import { failureEvent, PipelineFailure } from './failures';
 import { exportBudget } from './export-policy';
 import { createExportOutput } from './export-output';
 import type { ExportDestination } from './export-files';
+import { ExportMetrics } from './export-metrics';
 import {
   duration,
   seconds,
@@ -100,8 +101,15 @@ scope.onmessage = (event) => {
     return;
   }
   if (data.type === 'export')
-    void exportProject(data.project, data.format, data.bitrate, data.range, data.destination).catch(
-      (e) => scope.postMessage({ type: 'error', ...failureEvent(e, 'export', data.project) }),
+    void exportProject(
+      data.project,
+      data.format,
+      data.bitrate,
+      data.range,
+      data.destination,
+      data.profile,
+    ).catch((e) =>
+      scope.postMessage({ type: 'error', ...failureEvent(e, 'export', data.project) }),
     );
 };
 async function extra(data: { type: string; project: Project; time: number; requestId: number }) {
@@ -147,10 +155,14 @@ async function preview() {
         if (!renderer || renderer.canvas.width !== width || renderer.canvas.height !== height) {
           await renderer?.close();
           renderer = new Renderer(pool, new OffscreenCanvas(width, height));
+          renderer.measureSelection = true;
         }
         await renderer.render(p, data.time);
         const bitmap = renderer.canvas.transferToImageBitmap();
-        scope.postMessage({ type: 'frame', seq: data.seq, bitmap }, [bitmap]);
+        scope.postMessage(
+          { type: 'frame', seq: data.seq, bitmap, textBounds: renderer.textBounds },
+          [bitmap],
+        );
       } catch (e) {
         // Drop broken cursors, then process the already-queued latest request.
         await renderer?.close().catch(() => {});
@@ -172,7 +184,9 @@ async function exportProject(
   bitrate: number,
   range?: { start: number; end: number },
   destination: ExportDestination = { id: crypto.randomUUID() },
+  profile = false,
 ) {
+  const metrics = new ExportMetrics(profile);
   const p = validateProject(raw);
   const from = range?.start ?? 0,
     to = range?.end ?? duration(p);
@@ -200,12 +214,13 @@ async function exportProject(
   let visual: Renderer | undefined;
   let mixer: AudioMixer | undefined;
   let sink: Awaited<ReturnType<typeof createExportOutput>> | undefined;
+  const releaseQueueProbe = metrics.watchVideoQueue();
   try {
     scope.postMessage({ type: 'progress', stage: '폰트 · 원본 확인', progress: 0 });
     for (const key of requiredAssets(p, from, to, format === 'mp4' || format === 'webm'))
       if (!pool.files.has(key))
         throw new Error(`원본이 누락되었습니다: ${p.assets.find((a) => a.id === key)?.name}`);
-    sink = await createExportOutput(destination, format);
+    sink = await metrics.measure('destination', () => createExportOutput(destination, format));
     const target = sink.target;
     output = new Output({
       target,
@@ -222,12 +237,17 @@ async function exportProject(
     if (format === 'mp4' || format === 'webm') {
       const codec: VideoCodec = format === 'mp4' ? 'avc' : caps.vp9 ? 'vp9' : 'vp8';
       const canvas = new OffscreenCanvas(p.width, p.height);
-      visual = new Renderer(pool, canvas);
-      await visual.render(p, from);
+      visual = new Renderer(pool, canvas, metrics);
+      await metrics.measure('prepare/fonts', () => visual!.render(p, from));
       video = new CanvasSource(canvas, {
         codec,
         bitrate,
         keyFrameInterval: 2,
+        onEncodedPacket: profile
+          ? () => {
+              metrics.encodedVideoPackets++;
+            }
+          : undefined,
       });
       output.addVideoTrack(video, { frameRate: p.fps });
     }
@@ -246,7 +266,9 @@ async function exportProject(
     async function encodeAudioUntil(boundary: number) {
       while (audioAt < boundary) {
         const count = Math.min(4096, boundary - audioAt);
-        const data = await mixer!.block(Math.round(seconds(from) * 48000) + audioAt, count);
+        const data = await metrics.measure('audio decode/mix', () =>
+          mixer!.block(Math.round(seconds(from) * 48000) + audioAt, count),
+        );
         const sample = new AudioSample({
           data,
           format: 'f32',
@@ -255,7 +277,7 @@ async function exportProject(
           timestamp: audioAt / 48000,
         });
         try {
-          await audio.add(sample);
+          await metrics.measure('audio encode', () => audio.add(sample));
         } finally {
           sample.close();
         }
@@ -265,10 +287,16 @@ async function exportProject(
     if (video && visual) {
       for (let frame = 0; frame < frameCount; frame++) {
         const time = from + frameTick(frame, p.fps);
-        await visual.render(p, time);
-        await video.add(frame / p.fps, 1 / p.fps);
+        await metrics.measure('render including decode', () => visual!.render(p, time));
         const boundary = Math.min(sampleCount, Math.ceil(((frame + 1) / p.fps) * 48000));
-        await encodeAudioUntil(boundary);
+        // One frame at a time: mix the matching audio while the encoder drains its bounded queue.
+        // Both operations settle before the canvas is changed for the next frame.
+        const pending = await Promise.allSettled([
+          metrics.measure('video encode/backpressure', () => video!.add(frame / p.fps, 1 / p.fps)),
+          encodeAudioUntil(boundary),
+        ]);
+        const rejected = pending.find((result) => result.status === 'rejected');
+        if (rejected?.status === 'rejected') throw rejected.reason;
         if (frame % Math.max(1, Math.floor(p.fps / 4)) === 0)
           scope.postMessage({
             type: 'progress',
@@ -292,13 +320,14 @@ async function exportProject(
     video?.close();
     audio.close();
     scope.postMessage({ type: 'progress', stage: '컨테이너 마무리', progress: 1 });
-    await output.finalize();
-    const result = await sink.complete();
+    await metrics.measure('mux/finalize', () => output!.finalize());
+    const result = await metrics.measure('save', () => sink!.complete());
     scope.postMessage(
       {
         type: 'complete',
         ...result,
         format,
+        metrics: metrics.result(),
         audio: { peak: mixer.peak, clippedSamples: mixer.clippedSamples },
       },
       result.buffer ? [result.buffer] : [],
@@ -318,6 +347,7 @@ async function exportProject(
       );
     throw e;
   } finally {
+    releaseQueueProbe();
     await mixer?.close();
     await visual?.close();
     pool.close();

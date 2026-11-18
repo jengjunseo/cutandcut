@@ -1,4 +1,12 @@
 import { validSourceColorSpace, type SourceColorSpace } from './color';
+import {
+  transitionWindow,
+  limitTransitionFrames,
+  transitionGeometry,
+  audioEnvelope,
+  type Direction,
+} from './transitions';
+import { validTextStyle } from './text-styles';
 
 export const SECOND = 1_000_000;
 // Integer microsecond representability, not a product duration limit.
@@ -16,7 +24,14 @@ export const seconds = (time: number) => time / SECOND;
 export const frameTick = (frame: number, fps: number) => Math.round((frame * SECOND) / fps);
 export const id = () => crypto.randomUUID();
 export type Kind = 'video' | 'image' | 'audio' | 'text';
-export type Transition = { kind: 'dissolve' | 'black' | 'white'; duration: number };
+export type Transition = {
+  kind: 'dissolve' | 'black' | 'white' | 'slide' | 'wipe';
+  duration: number;
+  version?: 2;
+  frames?: number;
+  direction?: Direction;
+  audioPolicy?: 'unchanged' | 'linked-crossfade' | 'linked-dip';
+};
 export type Asset = {
   id: string;
   name: string;
@@ -39,6 +54,32 @@ export type Asset = {
   stored: boolean;
 };
 export type TextStyle = {
+  fontId?: 'noto' | 'gothic' | 'myeongjo';
+  styleVersion?: 2;
+  lineHeight?: number;
+  letterSpacing?: number;
+  boxWidth?: number;
+  fillAlpha?: number;
+  strokeColor?: string;
+  strokeAlpha?: number;
+  shadowStyle?: { color: string; alpha: number; x: number; y: number; blur: number };
+  backgroundStyle?: {
+    alpha: number;
+    paddingX: number;
+    paddingY: number;
+    radius: number;
+    policy: 'line' | 'block';
+  };
+  anchor?:
+    | 'top-left'
+    | 'top-center'
+    | 'top-right'
+    | 'middle-left'
+    | 'middle-center'
+    | 'middle-right'
+    | 'bottom-left'
+    | 'bottom-center'
+    | 'bottom-right';
   text: string;
   size: number;
   color: string;
@@ -90,6 +131,8 @@ export type Project = {
   version: 1;
   id: string;
   name: string;
+  nameOrigin?: 'auto' | 'manual';
+  editRevision?: number;
   width: number;
   height: number;
   fps: number;
@@ -106,6 +149,8 @@ export function emptyProject(): Project {
     version: 1,
     id: id(),
     name: '이름 없는 프로젝트',
+    nameOrigin: 'auto',
+    editRevision: 0,
     width: 1920,
     height: 1080,
     fps: 30,
@@ -438,7 +483,8 @@ export function normalize(p: Project): Project {
     c.sourceIn = Math.max(0, Math.round(c.sourceIn));
     c.fadeIn = Math.min(c.fadeIn, c.duration);
     c.fadeOut = Math.min(c.fadeOut, c.duration);
-    if (c.transition) c.transition.duration = Math.min(c.transition.duration, c.duration / 2);
+    if (c.transition && !c.transition.version)
+      c.transition.duration = Math.min(c.transition.duration, c.duration / 2);
   }
   for (const c of p.clips)
     if (c.transition) {
@@ -447,6 +493,15 @@ export function normalize(p: Project): Project {
       );
       if (!prev) {
         c.transition = undefined;
+        continue;
+      }
+      if (c.transition.version === 2) {
+        const frames = limitTransitionFrames(p, c, prev, c.transition.frames ?? 0);
+        if (frames < 2) c.transition = undefined;
+        else {
+          c.transition.frames = frames;
+          c.transition.duration = frameTick(frames, p.fps);
+        }
         continue;
       }
       c.transition.duration = Math.min(
@@ -501,6 +556,10 @@ export type Layer = {
   alpha: number;
   overlay?: string;
   overlayAlpha?: number;
+  blendGroup?: string;
+  offsetX?: number;
+  offsetY?: number;
+  mask?: { x: number; y: number; w: number; h: number };
 };
 /** Solo applies within each track kind; hiding/muting a solo track keeps it excluded. */
 export function activeTracks(p: Project, kind: Track['kind']): Set<string> {
@@ -520,6 +579,51 @@ export function layers(p: Project, time: number): Layer[] {
     const clips = p.clips
       .filter((c) => c.trackId === track.id && c.kind !== 'audio')
       .sort((a, b) => a.start - b.start);
+    const right = clips.find(
+      (c) =>
+        c.transition?.version === 2 &&
+        time >= transitionWindow(c, p.fps).start &&
+        time < transitionWindow(c, p.fps).end,
+    );
+    if (right) {
+      const left = clips.find((c) => c.id !== right.id && c.start + c.duration === right.start);
+      if (left) {
+        const window = transitionWindow(right, p.fps),
+          tr = right.transition!,
+          progress = (time - window.start) / (window.end - window.start);
+        const base = (c: Clip): Layer => ({
+          clip: c,
+          sourceTime: seconds(c.sourceIn + (time - c.start) * (c.speed ?? 1)),
+          alpha: c.opacity,
+        });
+        if (tr.kind === 'black' || tr.kind === 'white') {
+          const incoming = time >= right.start,
+            layer = base(incoming ? right : left);
+          layer.overlay = tr.kind === 'white' ? '#ffffff' : '#000000';
+          layer.overlayAlpha = incoming
+            ? 1 - (time - right.start) / (window.end - right.start)
+            : (time - window.start) / (right.start - window.start);
+          output.push(layer);
+        } else {
+          const geometry = transitionGeometry(tr.kind, tr.direction ?? 'left', progress);
+          const a = { ...base(left), ...geometry[0] },
+            b = { ...base(right), ...geometry[1] };
+          if (tr.kind === 'dissolve') {
+            a.alpha *= 1 - progress;
+            b.alpha *= progress;
+            a.blendGroup = b.blendGroup = right.id;
+          }
+          output.push(a, b);
+        }
+        // Other overlays on this track still follow its normal chronological order.
+        for (const extra of clips.filter(
+          (c) =>
+            c.id !== left.id && c.id !== right.id && time >= c.start && time < c.start + c.duration,
+        ))
+          output.push(base(extra));
+        continue;
+      }
+    }
     for (const c of clips) {
       if (time < c.start || time >= c.start + c.duration) continue;
       const layer: Layer = {
@@ -528,7 +632,11 @@ export function layers(p: Project, time: number): Layer[] {
         alpha: c.opacity,
       };
       const next = clips.find((x) => x.start === c.start + c.duration && x.transition);
-      if (next?.transition && time >= next.start - next.transition.duration) {
+      if (
+        next?.transition &&
+        !next.transition.version &&
+        time >= next.start - next.transition.duration
+      ) {
         const tr = next.transition;
         const progress = (time - next.start + tr.duration) / tr.duration;
         if (tr.kind === 'dissolve') {
@@ -545,6 +653,7 @@ export function layers(p: Project, time: number): Layer[] {
       }
       if (
         c.transition &&
+        !c.transition.version &&
         c.transition.kind !== 'dissolve' &&
         time < c.start + c.transition.duration
       ) {
@@ -575,8 +684,23 @@ export function requiredAssets(p: Project, start: number, end: number, visual = 
   for (const c of p.clips) {
     if (!c.assetId) continue;
     if (c.kind === 'audio' ? !audible.has(c.trackId) : !visual || !visible.has(c.trackId)) continue;
-    const pre = c.transition?.kind === 'dissolve' ? c.transition.duration : 0;
-    if (c.start - pre < end && c.start + c.duration > start) keys.add(c.assetId);
+    if (c.kind === 'audio') {
+      const range = audioEnvelope(p, c);
+      if (range.start < end && range.end > start) keys.add(c.assetId);
+      continue;
+    }
+    const pre =
+      c.transition?.version === 2
+        ? c.start - transitionWindow(c, p.fps).start
+        : c.transition?.kind === 'dissolve'
+          ? c.transition.duration
+          : 0;
+    const incoming = p.clips.find(
+      (n) =>
+        n.trackId === c.trackId && n.start === c.start + c.duration && n.transition?.version === 2,
+    );
+    const post = incoming ? transitionWindow(incoming, p.fps).end - incoming.start : 0;
+    if (c.start - pre < end && c.start + c.duration + post > start) keys.add(c.assetId);
   }
   return keys;
 }
@@ -621,6 +745,11 @@ export function validateProject(value: unknown): Project {
     !Array.isArray(p.tracks) ||
     !Array.isArray(p.clips) ||
     !Array.isArray(p.assets)
+  )
+    fail();
+  if (
+    (p.nameOrigin !== undefined && !['auto', 'manual'].includes(p.nameOrigin)) ||
+    (p.editRevision !== undefined && (!Number.isSafeInteger(p.editRevision) || p.editRevision < 0))
   )
     fail();
   if (
@@ -771,14 +900,36 @@ export function validateProject(value: unknown): Project {
         c.text.outline < 0)
     )
       fail();
+    if (c.text && !validTextStyle(c.text)) fail();
     if (
       c.transition &&
-      (!['dissolve', 'black', 'white'].includes(c.transition.kind) ||
+      (!['dissolve', 'black', 'white', 'slide', 'wipe'].includes(c.transition.kind) ||
         !Number.isFinite(c.transition.duration) ||
         c.transition.duration <= 0 ||
-        c.transition.duration > c.duration / 2)
+        (!c.transition.version && c.transition.duration > c.duration / 2) ||
+        (c.transition.version !== undefined && c.transition.version !== 2) ||
+        (!c.transition.version && !['dissolve', 'black', 'white'].includes(c.transition.kind)) ||
+        (c.transition.version === 2 &&
+          (!Number.isSafeInteger(c.transition.frames) ||
+            c.transition.frames! < 2 ||
+            c.transition.duration !== frameTick(c.transition.frames!, p.fps) ||
+            !['left', 'right', 'up', 'down'].includes(c.transition.direction ?? 'left') ||
+            !['unchanged', 'linked-crossfade', 'linked-dip'].includes(
+              c.transition.audioPolicy ?? 'unchanged',
+            ))))
     )
       fail();
+    if (c.transition?.version === 2) {
+      const prev = p.clips.find(
+        (x) => x.id !== c.id && x.trackId === c.trackId && x.start + x.duration === c.start,
+      );
+      if (
+        !prev ||
+        !Number.isSafeInteger(c.transition.duration) ||
+        limitTransitionFrames(p, c, prev, c.transition.frames!) !== c.transition.frames
+      )
+        fail();
+    }
   }
   for (const group of new Set(p.clips.map((c) => c.linkId).filter(Boolean))) {
     const members = p.clips.filter((c) => c.linkId === group);

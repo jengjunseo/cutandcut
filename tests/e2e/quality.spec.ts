@@ -1,3 +1,4 @@
+import { closeMobilePanel, libraryOptions, precisionOptions } from './workspace-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 test('quality: project switches terminate waveforms after file import completes', async ({
@@ -153,6 +154,7 @@ test('quality: failed MP3/AAC modules leave real WAV and WebM export usable', as
   await fixturePage.goto('http://localhost:5174');
   const input = (await samples(fixturePage)).find((f: { name: string }) => f.name === 'music.wav')!;
   await fixturePage.close();
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: input.name,
@@ -187,6 +189,7 @@ test('quality: media and edits beyond one hour survive persistence', async ({ pa
     const url = '/tests/fixtures.browser.ts';
     return (await import(/* @vite-ignore */ url)).makeLongFixture();
   });
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: input.name,
@@ -266,6 +269,7 @@ test('quality: gap impact, caption output targets and export-only settings are e
   await page.locator('.timeline-clip').filter({ hasText: '제목 앞' }).click();
   await page.getByLabel('재생헤드 타임코드').fill('1.5');
   await page.getByLabel('재생헤드 타임코드').press('Enter');
+  await precisionOptions(page);
   await page.getByRole('button', { name: '빈 구간 제거', exact: true }).click();
   const gap = page.getByRole('dialog', { name: '빈 구간 제거 영향' });
   await expect(gap).toContainText('1.000–2.000초');
@@ -302,8 +306,9 @@ test('quality: portrait media preview survives mobile tabs and viewport resizing
   await page.goto('/');
   const input = (await samples(page))[0];
   await page.setViewportSize({ width: 390, height: 844 });
-  const navigation = page.locator('.mobile-navigation');
+  const navigation = page.locator('.mobile-dock');
   await navigation.getByRole('button', { name: '미디어', exact: true }).click();
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: input.name,
@@ -311,13 +316,13 @@ test('quality: portrait media preview survives mobile tabs and viewport resizing
     buffer: Buffer.from(input.bytes),
   });
   await expect(page.locator('.import-progress')).toHaveCount(0);
-  await navigation.getByRole('button', { name: '속성', exact: true }).click();
+  await navigation.getByRole('button', { name: '화면', exact: true }).click();
   await page.getByRole('button', { name: '9:16', exact: true }).click();
   const sizes = [];
   for (const width of [390, 768, 390]) {
     await page.setViewportSize({ width, height: 844 });
     await navigation.getByRole('button', { name: '미디어', exact: true }).click();
-    await navigation.getByRole('button', { name: '미리보기', exact: true }).click();
+    await closeMobilePanel(page);
     const canvas = page.getByLabel('프로젝트 합성 영상');
     await expect.poll(async () => (await canvas.boundingBox())?.height ?? 0).toBeGreaterThan(20);
     const box = (await canvas.boundingBox())!;

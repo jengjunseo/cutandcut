@@ -1,3 +1,4 @@
+import { precisionOptions } from './workspace-helpers';
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 test('speed, pitch preservation, mix normalization, freeze and absolute-time range export', async ({
@@ -65,9 +66,11 @@ test('Korean caption list, range controls, project copies and recovery preserve 
   await page.getByLabel('재생헤드 타임코드').fill('00:00:01:00');
   await page.getByLabel('재생헤드 타임코드').press('Enter');
   await expect(page.getByLabel('재생헤드 타임코드')).toHaveValue('00:00:01:00');
+  await precisionOptions(page);
   await page.getByRole('button', { name: '구간 시작 I', exact: true }).click();
   await page.getByLabel('재생헤드 타임코드').fill('2');
   await page.getByLabel('재생헤드 타임코드').press('Enter');
+  await precisionOptions(page);
   await page.getByRole('button', { name: '구간 끝 O', exact: true }).click();
   await expect(page.locator('.range-highlight')).toBeVisible();
   await page.getByRole('button', { name: '내보내기', exact: true }).click();

@@ -1,24 +1,41 @@
-import { layers, type Project, type Clip } from './model';
+import { layers, type Project } from './model';
 import { MediaPool, VideoCursor } from './media';
 import { ensureFonts } from './fonts';
 import { VIDEO_CONTEXT } from './color';
+import { ExportMetrics } from './export-metrics';
+import { drawStyledText } from './text-layout';
 export class Renderer {
+  measureSelection = false;
+  textBounds: Record<string, { left: number; top: number; width: number; height: number }> = {};
+  blendCanvas?: OffscreenCanvas;
   cursors = new Map<string, VideoCursor>();
   fontText = '';
+  prepared?: Project;
   constructor(
     public pool: MediaPool,
     public canvas: OffscreenCanvas,
+    public metrics = new ExportMetrics(),
   ) {}
   async render(p: Project, time: number) {
-    const texts = p.clips.map((c) => c.text?.text ?? '').join('');
-    if (texts !== this.fontText) {
-      await ensureFonts(texts);
-      this.fontText = texts;
+    if (p !== this.prepared) {
+      const signature = p.clips
+        .map((c) => (c.text ? JSON.stringify([c.text.text, c.text.fontId, c.text.bold]) : ''))
+        .join('');
+      if (signature !== this.fontText) {
+        await Promise.all(
+          p.clips
+            .filter((c) => c.text?.text)
+            .map((c) => ensureFonts(c.text!.text, c.text!.fontId, c.text!.bold ? 700 : 400)),
+        );
+        this.fontText = signature;
+      }
+      this.prepared = p;
     }
     const ctx = this.canvas.getContext('2d', VIDEO_CONTEXT);
     if (!ctx) throw new Error('SDR 영상 합성 캔버스를 시작할 수 없습니다.');
     const w = this.canvas.width,
       h = this.canvas.height;
+    this.textBounds = {};
     ctx.resetTransform();
     ctx.globalAlpha = 1;
     ctx.fillStyle = p.background;
@@ -29,16 +46,55 @@ export class Renderer {
     );
     // Release previous scenes before admitting new sources into the bounded cache.
     await this.releaseInactive(active);
-    for (const { clip: c, sourceTime, alpha, overlay, overlayAlpha } of visible) {
+    const main = ctx;
+    for (let index = 0; index < visible.length; index++) {
+      const {
+        clip: c,
+        sourceTime,
+        alpha,
+        overlay,
+        overlayAlpha,
+        blendGroup,
+        mask,
+        offsetX = 0,
+        offsetY = 0,
+      } = visible[index];
+      let ctx = main;
+      if (blendGroup) {
+        this.blendCanvas ??= new OffscreenCanvas(w, h);
+        ctx = this.blendCanvas.getContext('2d', { colorSpace: 'srgb', alpha: true })!;
+        if (visible[index - 1]?.blendGroup !== blendGroup) ctx.clearRect(0, 0, w, h);
+      }
       ctx.save();
       try {
+        if (blendGroup) ctx.globalCompositeOperation = 'lighter';
+        if (mask) {
+          const x = Math.round(mask.x * w),
+            y = Math.round(mask.y * h);
+          ctx.beginPath();
+          ctx.rect(
+            x,
+            y,
+            Math.round((mask.x + mask.w) * w) - x,
+            Math.round((mask.y + mask.h) * h) - y,
+          );
+          ctx.clip();
+        }
         ctx.globalAlpha = alpha;
-        ctx.translate(w * c.x, h * c.y);
+        ctx.translate(w * (c.x + offsetX), h * (c.y + offsetY));
         ctx.rotate((c.rotation * Math.PI) / 180);
         ctx.scale(c.scale, c.scale);
-        if (c.kind === 'text') drawText(ctx, c, w, p.width);
-        else if (c.assetId) {
-          const r = await this.pool.get(c.assetId);
+        if (c.kind === 'text') {
+          const bounds = drawStyledText(ctx, c.text!, w / p.width);
+          if (bounds && this.measureSelection)
+            this.textBounds[c.id] = {
+              left: bounds.left / w,
+              top: bounds.top / h,
+              width: bounds.width / w,
+              height: bounds.height / h,
+            };
+        } else if (c.assetId) {
+          const r = await this.metrics.measure('demux/resource', () => this.pool.get(c.assetId!));
           let source: CanvasImageSource | undefined = r.image;
           if (r.video) {
             let cursor = this.cursors.get(c.id);
@@ -49,7 +105,10 @@ export class Renderer {
             }
             const asset = p.assets.find((a) => a.id === c.assetId)!;
             const timestamp = (asset.origin ?? asset.videoStart) + Math.max(0, sourceTime);
-            source = timestamp + 0.5e-6 < asset.videoStart ? undefined : await cursor.at(timestamp);
+            source =
+              timestamp + 0.5e-6 < asset.videoStart
+                ? undefined
+                : await this.metrics.measure('video decode', () => cursor!.at(timestamp));
           }
           if (source) {
             const sw = (source as ImageBitmap | OffscreenCanvas).width,
@@ -75,6 +134,8 @@ export class Renderer {
       } finally {
         ctx.restore();
       }
+      if (blendGroup && visible[index + 1]?.blendGroup !== blendGroup)
+        main.drawImage(this.blendCanvas!, 0, 0);
       if (overlay) {
         ctx.save();
         ctx.globalAlpha = (overlayAlpha ?? 0) * alpha;
@@ -103,44 +164,9 @@ export class Renderer {
     try {
       await this.releaseInactive(new Set());
     } finally {
+      this.textBounds = {};
       this.canvas.width = this.canvas.height = 1;
+      if (this.blendCanvas) this.blendCanvas.width = this.blendCanvas.height = 1;
     }
-  }
-}
-function drawText(
-  ctx: OffscreenCanvasRenderingContext2D,
-  c: Clip,
-  w: number,
-  projectWidth: number,
-) {
-  const t = c.text!;
-  const fontSize = (t.size * w) / projectWidth;
-  ctx.font = `${t.bold ? 700 : 400} ${fontSize}px "CyanCut Noto"`;
-  ctx.textAlign = t.align;
-  ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  const lines = t.text.split('\n'),
-    lineHeight = fontSize * 1.45;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const y = (i - (lines.length - 1) / 2) * lineHeight;
-    const width = ctx.measureText(line).width;
-    const left = t.align === 'left' ? 0 : t.align === 'right' ? -width : -width / 2;
-    if (t.background !== 'transparent') {
-      ctx.fillStyle = t.background;
-      ctx.fillRect(left - fontSize * 0.3, y - lineHeight / 2, width + fontSize * 0.6, lineHeight);
-    }
-    if (t.shadow) {
-      ctx.shadowColor = 'rgba(0,0,0,.65)';
-      ctx.shadowBlur = fontSize * 0.15;
-      ctx.shadowOffsetY = fontSize * 0.07;
-    }
-    if (t.outline) {
-      ctx.strokeStyle = '#111820';
-      ctx.lineWidth = ((t.outline * w) / projectWidth) * 2;
-      ctx.strokeText(line, 0, y);
-    }
-    ctx.fillStyle = t.color;
-    ctx.fillText(line, 0, y);
   }
 }

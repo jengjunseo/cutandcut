@@ -1,3 +1,4 @@
+import { libraryOptions } from './workspace-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs/promises';
 async function fixtures(page: Page) {
@@ -9,6 +10,7 @@ async function fixtures(page: Page) {
 }
 async function importSamples(page: Page) {
   const samples = await fixtures(page);
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles(
     samples.map((f: { name: string; mimeType: string; bytes: number[] }) => ({
@@ -128,7 +130,6 @@ test('real local editing, linked cuts, layers, Korean, audio, outputs and recove
   await expect(page.getByLabel('프로젝트 합성 영상')).toBeVisible();
   await page.screenshot({ path: 'artifacts/imported.png' });
   await page.locator('.timeline-clip.video').filter({ hasText: 'first.mp4' }).click();
-  const ruler = await page.locator('.ruler').boundingBox();
   await page.getByLabel('재생헤드 타임코드').fill('1');
   await page.getByLabel('재생헤드 타임코드').press('Enter');
   await page.keyboard.press('Control+b');
@@ -138,6 +139,7 @@ test('real local editing, linked cuts, layers, Korean, audio, outputs and recove
   await setNumber(page, '길이 (초)', '0.8');
   await page.locator('.timeline-clip.video').filter({ hasText: 'second.mp4' }).click();
   await setNumber(page, '시작 (초)', '0');
+  await page.locator('.timeline-scroll').evaluate((el) => (el.scrollLeft = 0));
   await page
     .locator('.timeline-clip.video[aria-label*="시작 0.00초"]')
     .filter({ hasText: 'first.mp4' })
@@ -159,7 +161,8 @@ test('real local editing, linked cuts, layers, Korean, audio, outputs and recove
   await setNumber(page, '세로 위치 (%)', '20');
   await setNumber(page, '길이 (초)', '1.5');
   // Seek to zero before adding Korean caption on the same upper visual track.
-  await page.mouse.click(ruler!.x + 1, ruler!.y + 15);
+  await page.getByLabel('재생헤드 타임코드').fill('0');
+  await page.getByLabel('재생헤드 타임코드').press('Enter');
   await page.getByRole('button', { name: '텍스트', exact: true }).click();
   await page.getByRole('button', { name: /제목 추가/ }).click();
   await page.getByLabel('텍스트 내용').fill('한글 편집 테스트\nCyanCut');
@@ -302,11 +305,10 @@ test('real local editing, linked cuts, layers, Korean, audio, outputs and recove
 test('mobile layout, IME-safe input and truthful saving failure', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await page.getByRole('button', { name: '속성', exact: true }).click();
+  await page.locator('.mobile-dock').getByRole('button', { name: '화면', exact: true }).click();
   await expect(page.getByRole('button', { name: '9:16', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '9:16', exact: true }).click();
-  await page.getByRole('button', { name: '미디어', exact: true }).first().click();
-  await page.getByRole('button', { name: '텍스트', exact: true }).click();
+  await page.locator('.mobile-dock').getByRole('button', { name: '텍스트', exact: true }).click();
   await page.getByRole('button', { name: /제목 추가/ }).click();
   const text = page.getByLabel('텍스트 내용');
   await text.fill('한글');

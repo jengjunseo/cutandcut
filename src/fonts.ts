@@ -1,52 +1,77 @@
-import regular from '@fontsource/noto-sans-kr/400.css?raw';
-import bold from '@fontsource/noto-sans-kr/700.css?raw';
-const urls = import.meta.glob(
-  '../node_modules/@fontsource/noto-sans-kr/files/*-{400,700}-normal.woff2',
-  { query: '?url', import: 'default', eager: true },
-) as Record<string, string>;
+export const fontCatalog = [
+  { id: 'noto', label: 'Noto Sans KR', family: 'CyanCut Noto' },
+  { id: 'gothic', label: '나눔고딕', family: 'CyanCut Gothic' },
+  { id: 'myeongjo', label: '나눔명조', family: 'CyanCut Myeongjo' },
+] as const;
+const sources = {
+  noto: () => import('./font-noto'),
+  gothic: () => import('./font-gothic'),
+  myeongjo: () => import('./font-myeongjo'),
+};
 const loaded = new Map<string, Promise<FontFace>>();
-type FontScope = typeof globalThis & { fonts: FontFaceSet };
-export async function ensureFonts(text: string) {
-  const points = [...(text + 'CyanCut 0123456789')].map((c) => c.codePointAt(0)!);
-  const work: Promise<FontFace>[] = [];
-  for (const css of [regular, bold])
+const catalogs = new Map<string, Promise<Awaited<ReturnType<typeof sources.noto>>>>();
+export async function ensureFonts(text: string, fontId = 'noto', weight?: number) {
+  if (!text) return;
+  const font = fontCatalog.find((f) => f.id === fontId);
+  if (!font)
+    throw new Error('프로젝트의 글꼴이 없습니다. 기본 한글 글꼴을 직접 선택하고 다시 출력하세요.');
+  if (!catalogs.has(font.id))
+    catalogs.set(
+      font.id,
+      sources[font.id]().catch((error) => {
+        catalogs.delete(font.id);
+        throw new Error(
+          `${font.label} 글꼴 모듈을 불러오지 못했습니다. 연결을 확인하고 재시도하거나 기본 글꼴을 선택하세요.`,
+          { cause: error },
+        );
+      }),
+    );
+  const { styles, urls } = await catalogs.get(font.id)!;
+  const points = new Set(Array.from(text).map((c) => c.codePointAt(0)!)),
+    work: Promise<FontFace>[] = [];
+  for (const css of styles)
     for (const match of css.matchAll(
       /font-weight:\s*(\d+);[\s\S]*?url\(\.\/files\/([^)]*\.woff2)\)[\s\S]*?unicode-range:\s*([^;]+);/g,
     )) {
-      const [, weight, file, ranges] = match;
-      const intersects = ranges.split(',').some((r) => {
-        const [a, b] = r
-          .trim()
-          .slice(2)
-          .split('-')
-          .map((n) => parseInt(n, 16));
-        return points.some((p) => p >= a && p <= (b ?? a));
-      });
-      if (!intersects) continue;
-      const url = urls['../node_modules/@fontsource/noto-sans-kr/files/' + file];
-      if (!url)
-        throw new Error('기본 한글 폰트 파일을 찾을 수 없습니다. 새로고침 후 재시도하세요.');
-      if (!loaded.has(file)) {
-        const face = new FontFace('CyanCut Noto', `url(${url})`, { weight, unicodeRange: ranges });
+      const [, w, file, ranges] = match;
+      if (weight && Number(w) !== weight) continue;
+      if (
+        !ranges.split(',').some((r) => {
+          const [a, b] = r
+            .trim()
+            .slice(2)
+            .split('-')
+            .map((n) => parseInt(n, 16));
+          return [...points].some((p) => p >= a && p <= (b ?? a));
+        })
+      )
+        continue;
+      const key = `${font.id}/${file}`;
+      if (!loaded.has(key)) {
+        const url = Object.entries(urls).find(([path]) => path.endsWith('/' + file))?.[1];
+        if (!url) throw new Error('한글 글꼴 파일을 찾을 수 없습니다. 새로고침 후 재시도하세요.');
+        const face = new FontFace(font.family, `url(${url})`, { weight: w, unicodeRange: ranges });
         loaded.set(
-          file,
+          key,
           face
             .load()
-            .then((f) => {
-              const scope = globalThis as FontScope;
-              const set = typeof document === 'undefined' ? scope.fonts : document.fonts;
-              set.add(f);
-              return f;
+            .then((face) => {
+              const set =
+                typeof document === 'undefined'
+                  ? (globalThis as typeof globalThis & { fonts: FontFaceSet }).fonts
+                  : document.fonts;
+              set.add(face);
+              return face;
             })
             .catch(() => {
-              loaded.delete(file);
+              loaded.delete(key);
               throw new Error(
-                '한글 폰트를 불러오지 못했습니다. 연결을 확인한 뒤 재시도하세요. 다른 글꼴로 결과가 바뀌지 않도록 렌더링을 중단했습니다.',
+                `${font.label} 글꼴 로딩에 실패했습니다. 다른 글꼴로 조용히 대체하지 않습니다. 연결을 확인하거나 기본 글꼴을 선택한 뒤 다시 출력하세요.`,
               );
             }),
         );
       }
-      work.push(loaded.get(file)!);
+      work.push(loaded.get(key)!);
     }
   await Promise.all(work);
 }

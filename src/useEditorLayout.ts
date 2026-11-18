@@ -19,7 +19,6 @@ export function useEditorLayout(notify: (message: string) => void) {
     tablet: window.matchMedia(tabletQuery).matches,
   }));
   useEffect(() => {
-    if (mode !== 'mobile') return;
     const query = window.matchMedia(tabletQuery);
     let frame = 0;
     const measure = () => {
@@ -51,5 +50,10 @@ export function useEditorLayout(notify: (message: string) => void) {
       notify('UI 모드는 변경됐지만 기기에 저장하지 못했습니다. 다음에 다시 선택해주세요.');
     }
   }
-  return { mode, changeMode, mobile: mode === 'mobile', ...viewport };
+  return {
+    mode,
+    changeMode,
+    mobile: mode === 'mobile' || viewport.width < 1120 || viewport.height < 620,
+    ...viewport,
+  };
 }

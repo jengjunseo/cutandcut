@@ -1,3 +1,4 @@
+import { libraryOptions } from './workspace-helpers';
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 
@@ -46,6 +47,7 @@ test('stability: rotated 4K 60fps SDR input survives linked split, reload and 10
     const url = '/tests/e2e/stability.browser.ts';
     return (await import(/* @vite-ignore */ url)).rotated4k60();
   });
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: fixture.name,
@@ -201,6 +203,7 @@ test('stability: stalled export and message decoding failure release the worker 
     const url = '/tests/fixtures.browser.ts';
     return (await (await import(/* @vite-ignore */ url)).makeFixtures())[0];
   });
+  await libraryOptions(page);
   await page.getByLabel('가져오면서 타임라인에 연속 배치').check();
   await page.getByLabel('미디어 파일 선택').setInputFiles({
     name: source.name,

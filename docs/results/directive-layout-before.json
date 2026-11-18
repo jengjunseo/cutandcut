@@ -1,0 +1,118 @@
+{
+  "inputState": {
+    "input": "아베무지카 오늘도 라이브",
+    "label": "우리의 이야기를 시작해요\n우리의 이야기를 시작해요",
+    "save": "기기에 자동 저장됨"
+  },
+  "records": [
+    {
+      "width": 1440,
+      "height": 900,
+      "preview": {
+        "width": 648.875,
+        "height": 365
+      },
+      "visibleTracks": 1,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        55,
+        47,
+        43
+      ]
+    },
+    {
+      "width": 1363,
+      "height": 936,
+      "preview": {
+        "width": 712.875,
+        "height": 401
+      },
+      "visibleTracks": 1,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        55,
+        47,
+        43
+      ]
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "preview": {
+        "width": 435.546875,
+        "height": 245
+      },
+      "visibleTracks": 1,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        55,
+        47,
+        43
+      ]
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "preview": {
+        "width": 531.546875,
+        "height": 299
+      },
+      "visibleTracks": 1,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        55,
+        47,
+        43
+      ]
+    },
+    {
+      "width": 768,
+      "height": 1024,
+      "preview": {
+        "width": 0,
+        "height": 0
+      },
+      "visibleTracks": 0,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        44,
+        43
+      ]
+    },
+    {
+      "width": 640,
+      "height": 800,
+      "preview": {
+        "width": 0,
+        "height": 0
+      },
+      "visibleTracks": 0,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        44,
+        43
+      ]
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "preview": {
+        "width": 0,
+        "height": 0
+      },
+      "visibleTracks": 0,
+      "overflow": false,
+      "toolbarHeights": [
+        55,
+        77,
+        43
+      ]
+    }
+  ]
+}

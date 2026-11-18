@@ -15,6 +15,7 @@ import {
   type Project,
   type Track,
 } from './model';
+import { autoNamed } from './naming';
 
 /** Text-only paste adds overlays; media inserts open time on every track. */
 export function pasteEdit(
@@ -285,7 +286,7 @@ export function deleteGap(
   return { project: normalize(result) };
 }
 export function insertMedia(p: Project, asset: Asset, at: number, target?: string): Project {
-  let next = p;
+  let next = autoNamed(p, asset);
   let track = target && p.tracks.find((t) => t.id === target);
   if (!target && asset.kind === 'image') {
     const layer = freeLayer(p, at, tick(5), '이미지');
@@ -328,5 +329,12 @@ export function insertMedia(p: Project, asset: Asset, at: number, target?: strin
         },
       ],
     };
-  return addAsset(next, asset, asset.kind === 'video' && !target ? undefined : at, track.id);
+  const result = addAsset(
+    next,
+    asset,
+    asset.kind === 'video' && !target ? undefined : at,
+    track.id,
+  );
+  const named = autoNamed(p, asset);
+  return result === next ? p : { ...result, name: named.name, nameOrigin: named.nameOrigin };
 }

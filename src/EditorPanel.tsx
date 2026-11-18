@@ -7,6 +7,7 @@ export default function EditorPanel({
   mobile,
   open,
   docked = false,
+  collapsed = false,
   title,
   close,
   children,
@@ -14,6 +15,7 @@ export default function EditorPanel({
   mobile: boolean;
   open: boolean;
   docked?: boolean;
+  collapsed?: boolean;
   title: string;
   close: () => void;
   children: ReactNode;
@@ -49,7 +51,7 @@ export default function EditorPanel({
   return (
     <div
       className={`editor-panel-slot ${mobile ? 'mobile-sheet' : ''} ${docked ? 'sheet-docked' : ''}`}
-      hidden={mobile && !open}
+      hidden={mobile ? !open : collapsed}
       ref={root}
       tabIndex={mobile && open ? -1 : undefined}
       role={mobile && open ? (docked ? 'region' : 'dialog') : undefined}

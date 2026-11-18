@@ -1,3 +1,4 @@
+import { pixelsPerSecond } from './workspace-helpers';
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 test('portrait preview stays visible across ratios, recovery and resizing; accessible export settings', async ({
@@ -97,13 +98,13 @@ test('native AAC unavailable uses real local AAC fallback and library-only impor
   await expect(page.locator('.asset-card')).toHaveCount(3);
   await expect(page.locator('.import-progress')).toHaveCount(0);
   await expect(page.locator('.timeline-clip')).toHaveCount(0);
+  await page.getByRole('button', { name: '선택 모드', exact: true }).click();
+  await page.getByRole('button', { name: '미디어 전체 선택', exact: true }).click();
   await page
     .getByRole('button', { name: '선택한 미디어 추가 · 영상은 연속 배치', exact: true })
     .click();
   await expect(page.locator('.timeline-clip.video')).toHaveCount(2);
-  const zoom = Number(
-    await page.getByRole('slider', { name: '타임라인 확대', exact: true }).inputValue(),
-  );
+  const zoom = await pixelsPerSecond(page);
   expect(zoom).toBeGreaterThan(44);
   await page.getByRole('button', { name: '내보내기', exact: true }).click();
   await expect(page.getByLabel('파일 형식')).toHaveValue('mp4');
